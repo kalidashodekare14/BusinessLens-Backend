@@ -5,7 +5,14 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'sample-data/**', '*.tsbuildinfo'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'sample-data/**',
+      'src/generated/**',
+      '*.tsbuildinfo',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

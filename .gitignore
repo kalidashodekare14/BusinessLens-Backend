@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 uploads/
+src/generated/
 *.tsbuildinfo
 *.log
 .env
