@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+package-lock.json
+*.tsbuildinfo
+
+# Owner-authored docs are not agent-editable (AGENT.md §9) — never reformat them.
+AGENT.md
+docs/

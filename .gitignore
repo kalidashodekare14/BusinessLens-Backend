@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+uploads/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+
+
+
+# docs/TASKS.md
+# docs/PROJECT_ARCHITECTURE.md
+# AGENT.md
