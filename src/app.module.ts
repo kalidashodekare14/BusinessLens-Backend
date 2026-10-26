@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { parseConfig } from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { HealthModule } from './modules/health/health.module';
       },
     }),
     PrismaModule,
+    AuthModule,
     HealthModule,
   ],
 })
