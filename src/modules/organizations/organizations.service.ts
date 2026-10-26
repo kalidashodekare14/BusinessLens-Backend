@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type MembershipRole } from '../../generated/prisma/client';
 import { apiError } from '../../common/errors/api-error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditAction } from '../audit/audit.actions';
+import { AuditService } from '../audit/audit.service';
 
 export interface OrganizationBase {
   id: string;
@@ -32,22 +34,35 @@ const ORGANIZATION_SELECT = {
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Organization and OWNER membership must commit together or not at all. */
   async create(userId: string, input: { name: string }): Promise<OrganizationView> {
-    return this.prisma.$transaction(async (tx) => {
-      const organization = await tx.organization.create({
+    const organization = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.organization.create({
         data: { name: input.name },
         select: ORGANIZATION_SELECT,
       });
 
       await tx.membership.create({
-        data: { userId, organizationId: organization.id, role: 'OWNER' },
+        data: { userId, organizationId: created.id, role: 'OWNER' },
       });
 
-      return { ...organization, role: 'OWNER' };
+      return { ...created, role: 'OWNER' as const };
     });
+
+    this.audit.record({
+      action: AuditAction.ORGANIZATION_CREATED,
+      actorId: userId,
+      organizationId: organization.id,
+      entityType: 'Organization',
+      entityId: organization.id,
+    });
+
+    return organization;
   }
 
   async listForUser(userId: string, page: number, pageSize: number): Promise<OrganizationPage> {
@@ -71,9 +86,14 @@ export class OrganizationsService {
     };
   }
 
-  async update(organizationId: string, input: { name: string }): Promise<OrganizationBase> {
+  async update(
+    organizationId: string,
+    input: { name: string },
+    actorId: string,
+  ): Promise<OrganizationBase> {
+    let organization: OrganizationBase;
     try {
-      return await this.prisma.organization.update({
+      organization = await this.prisma.organization.update({
         where: { id: organizationId },
         data: { name: input.name },
         select: ORGANIZATION_SELECT,
@@ -84,5 +104,15 @@ export class OrganizationsService {
       }
       throw error;
     }
+
+    this.audit.record({
+      action: AuditAction.ORGANIZATION_UPDATED,
+      actorId,
+      organizationId,
+      entityType: 'Organization',
+      entityId: organizationId,
+    });
+
+    return organization;
   }
 }

@@ -87,12 +87,23 @@ export class RefreshTokenService {
     }
   }
 
-  /** Revokes the presented token only; logout is idempotent. */
-  async revoke(rawToken: string): Promise<void> {
+  /** Revokes the presented token only; logout is idempotent. Returns its owner, if any. */
+  async revoke(rawToken: string): Promise<string | null> {
+    const tokenHash = hashRefreshToken(rawToken);
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      select: { userId: true },
+    });
+    if (!stored) {
+      return null;
+    }
+
     await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: hashRefreshToken(rawToken), revokedAt: null },
+      where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+
+    return stored.userId;
   }
 
   private async revokeAllForUser(userId: string): Promise<void> {

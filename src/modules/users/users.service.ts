@@ -3,6 +3,8 @@ import { Prisma, type MembershipRole } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { apiError } from '../../common/errors/api-error';
 import { normalizeEmail } from '../../common/utils/email';
+import { AuditAction } from '../audit/audit.actions';
+import { AuditService } from '../audit/audit.service';
 import { PasswordService } from './password.service';
 
 export interface PublicUser {
@@ -49,6 +51,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
+    private readonly audit: AuditService,
   ) {}
 
   async create(input: CreateUserInput): Promise<PublicUser> {
@@ -160,5 +163,12 @@ export class UsersService {
         data: { revokedAt: new Date() },
       }),
     ]);
+
+    this.audit.record({
+      action: AuditAction.USER_PASSWORD_CHANGED,
+      actorId: userId,
+      entityType: 'User',
+      entityId: userId,
+    });
   }
 }
