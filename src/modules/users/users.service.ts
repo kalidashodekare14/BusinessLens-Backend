@@ -18,6 +18,13 @@ export interface CreateUserInput {
   password: string;
 }
 
+export interface UserCredentials {
+  id: string;
+  email: string;
+  name: string;
+  passwordHash: string;
+}
+
 const PUBLIC_USER_SELECT = {
   id: true,
   email: true,
@@ -51,5 +58,12 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  findByEmail(email: string): Promise<UserCredentials | null> {
+    return this.prisma.user.findUnique({
+      where: { email: normalizeEmail(email) },
+      select: { id: true, email: true, name: true, passwordHash: true },
+    });
   }
 }
