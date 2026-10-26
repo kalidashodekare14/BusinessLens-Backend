@@ -28,5 +28,32 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // Tenant modules must go through TenantPrismaService (PROJECT_ARCHITECTURE.md §6.2–6.3).
+    // The excluded modules only touch non-tenant tables, or (audit) the dedicated
+    // null-organization audit path that runs before a tenant context exists.
+    files: ['src/modules/**/*.ts'],
+    ignores: [
+      'src/modules/auth/**',
+      'src/modules/users/**',
+      'src/modules/organizations/**',
+      'src/modules/audit/**',
+      'src/modules/health/**',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/prisma/prisma.service'],
+              message:
+                'Tenant modules must use TenantPrismaService (TenantContextService in request code), never PrismaService directly.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettier,
 );
