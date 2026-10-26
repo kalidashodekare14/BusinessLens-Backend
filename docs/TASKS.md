@@ -29,7 +29,7 @@ Rules for this file:
   *Depends on:* T0.4. *Tests:* unit (hashing, validation), integration (register, duplicate).
 - [x] **T1.2** 🔒 `POST /auth/login`: verify password, issue 15-minute JWT access token (claims: `sub`), create opaque refresh token (stored as SHA-256 hash, 7 days), set `bl_refresh` httpOnly cookie per §6.4. Same generic error for unknown email and wrong password.
   *Depends on:* T1.1.
-- [ ] **T1.3** 🔒 `POST /auth/refresh` with rotation and reuse detection, and `POST /auth/logout` (revokes token, clears cookie).
+- [x] **T1.3** 🔒 `POST /auth/refresh` with rotation and reuse detection, and `POST /auth/logout` (revokes token, clears cookie).
   *Tests:* rotated token cannot be reused; reuse revokes the user's active tokens; expired token rejected.
 - [ ] **T1.4** `JwtAuthGuard`, `@CurrentUser()` decorator, `GET /users/me` (includes organizations), `PATCH /users/me`, `POST /users/me/change-password` (verifies old password, revokes all refresh tokens).
 - [ ] **T1.5** Organizations: `POST /organizations` (creates organization and OWNER membership in one transaction), `GET /organizations` (only the caller's), `GET /organizations/:organizationId`.
