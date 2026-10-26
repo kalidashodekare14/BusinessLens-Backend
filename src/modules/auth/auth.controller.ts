@@ -1,5 +1,15 @@
-import { Body, Controller, HttpCode, HttpException, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpException,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from './auth-cookie';
@@ -8,6 +18,7 @@ import { RegisterDto } from './dto/register.dto';
 import type { PublicUser } from '../users/users.service';
 
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly auth: AuthService,

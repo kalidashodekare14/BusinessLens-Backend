@@ -34,9 +34,9 @@ Rules for this file:
 - [x] **T1.4** `JwtAuthGuard`, `@CurrentUser()` decorator, `GET /users/me` (includes organizations), `PATCH /users/me`, `POST /users/me/change-password` (verifies old password, revokes all refresh tokens).
 - [x] **T1.5** Organizations: `POST /organizations` (creates organization and OWNER membership in one transaction), `GET /organizations` (only the caller's), `GET /organizations/:organizationId`.
   *Depends on:* T1.4.
-- [ ] **T1.6** 🔒 `OrgMembershipGuard` (404 when no membership), `RolesGuard` + `@Roles()`, `@CurrentOrg()` decorator. `PATCH /organizations/:organizationId` (OWNER only).
+- [x] **T1.6** 🔒 `OrgMembershipGuard` (404 when no membership), `RolesGuard` + `@Roles()`, `@CurrentOrg()` decorator. `PATCH /organizations/:organizationId` (OWNER only).
   *Tests:* non-member gets 404; MEMBER cannot call OWNER routes; client-supplied organization ids are never trusted.
-- [ ] **T1.7** Rate limiting on `/auth/*` using `@nestjs/throttler`.
+- [x] **T1.7** Rate limiting on `/auth/*` using `@nestjs/throttler`.
 - [ ] **T1.8** `AuditService` (non-blocking, never throws into the request) and audit events for register, login success/failure, logout, password change, organization create/update.
 
 ## Phase 2 — Tenant isolation (Day 2)
