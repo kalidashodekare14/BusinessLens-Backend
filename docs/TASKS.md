@@ -25,7 +25,7 @@ Rules for this file:
 ## Phase 1 — Auth and organizations (Day 1–2)
 
 - [x] **T1.0** (prerequisite, owner-approved) Grant `app_user` SELECT/INSERT/UPDATE/DELETE on the four non-tenant tables Phase 1 uses (`User`, `Organization`, `Membership`, `RefreshToken`). Tenant-table grants, `AuditLog` grants and all RLS policies stay in T2.1.
-- [ ] **T1.1** 🔒 Users module and `POST /auth/register`: email normalization, Argon2id hashing, min password length 10, duplicate email returns a generic 409/400.
+- [x] **T1.1** 🔒 Users module and `POST /auth/register`: email normalization, Argon2id hashing, min password length 10, duplicate email returns a generic 409/400.
   *Depends on:* T0.4. *Tests:* unit (hashing, validation), integration (register, duplicate).
 - [ ] **T1.2** 🔒 `POST /auth/login`: verify password, issue 15-minute JWT access token (claims: `sub`), create opaque refresh token (stored as SHA-256 hash, 7 days), set `bl_refresh` httpOnly cookie per §6.4. Same generic error for unknown email and wrong password.
   *Depends on:* T1.1.
