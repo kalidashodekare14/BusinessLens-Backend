@@ -48,3 +48,33 @@ export function cookieValue(setCookie: string): string {
   const [pair] = setCookie.split(';');
   return pair.slice(pair.indexOf('=') + 1);
 }
+
+export interface LoginSession {
+  accessToken: string;
+  setCookie: string;
+  rawToken: string;
+}
+
+export async function loginUser(
+  server: SuperTestTarget,
+  user: Pick<RegisteredUser, 'email' | 'password'>,
+): Promise<LoginSession> {
+  const res = await request(server)
+    .post('/api/v1/auth/login')
+    .send({ email: user.email, password: user.password });
+
+  if (res.status !== 200) {
+    throw new Error(`loginUser failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+
+  const setCookie = findSetCookie(res.headers['set-cookie'], 'bl_refresh');
+  if (!setCookie) {
+    throw new Error('loginUser did not receive a bl_refresh cookie');
+  }
+
+  return {
+    accessToken: res.body.data.accessToken,
+    setCookie,
+    rawToken: cookieValue(setCookie),
+  };
+}

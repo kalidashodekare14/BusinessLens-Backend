@@ -14,6 +14,12 @@ export interface LoginResult {
   refreshToken: string;
 }
 
+export interface RefreshResult {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string;
+}
+
 @Injectable()
 export class AuthService {
   private dummyHash?: Promise<string>;
@@ -43,6 +49,31 @@ export class AuthService {
     const refreshToken = await this.refreshTokens.issue(user.id);
 
     return { accessToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, refreshToken };
+  }
+
+  async refresh(rawToken: string | undefined): Promise<RefreshResult> {
+    if (!rawToken) {
+      throw apiError(401, 'REFRESH_TOKEN_INVALID', 'Invalid or expired session.');
+    }
+
+    const rotated = await this.refreshTokens.rotate(rawToken);
+    if (rotated.status !== 'ok') {
+      // Reuse is treated like any other invalid token; the client learns nothing.
+      throw apiError(401, 'REFRESH_TOKEN_INVALID', 'Invalid or expired session.');
+    }
+
+    const accessToken = await this.jwt.signAsync({ sub: rotated.userId });
+    return {
+      accessToken,
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      refreshToken: rotated.refreshToken,
+    };
+  }
+
+  async logout(rawToken: string | undefined): Promise<void> {
+    if (rawToken) {
+      await this.refreshTokens.revoke(rawToken);
+    }
   }
 
   private async verifyPassword(passwordHash: string | null, plain: string): Promise<boolean> {
