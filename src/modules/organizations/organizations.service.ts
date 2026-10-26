@@ -1,16 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import type { MembershipRole } from '../../generated/prisma/client';
+import { Prisma, type MembershipRole } from '../../generated/prisma/client';
 import { apiError } from '../../common/errors/api-error';
 import { PrismaService } from '../../prisma/prisma.service';
 
-export interface OrganizationView {
+export interface OrganizationBase {
   id: string;
   name: string;
   currency: string;
   timezone: string;
-  role: MembershipRole;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface OrganizationView extends OrganizationBase {
+  role: MembershipRole;
 }
 
 export interface OrganizationPage {
@@ -68,24 +71,18 @@ export class OrganizationsService {
     };
   }
 
-  /**
-   * Returns 404 (not 403) when the caller has no membership so organization ids
-   * are not confirmed to outsiders (§6.2). T1.6 moves this check into
-   * OrgMembershipGuard.
-   */
-  async getForUser(userId: string, organizationId: string): Promise<OrganizationView> {
-    const membership = await this.prisma.membership.findUnique({
-      where: { userId_organizationId: { userId, organizationId } },
-      select: {
-        role: true,
-        organization: { select: ORGANIZATION_SELECT },
-      },
-    });
-
-    if (!membership) {
-      throw apiError(404, 'NOT_FOUND', 'Organization not found.');
+  async update(organizationId: string, input: { name: string }): Promise<OrganizationBase> {
+    try {
+      return await this.prisma.organization.update({
+        where: { id: organizationId },
+        data: { name: input.name },
+        select: ORGANIZATION_SELECT,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw apiError(404, 'NOT_FOUND', 'Organization not found.');
+      }
+      throw error;
     }
-
-    return { ...membership.organization, role: membership.role };
   }
 }

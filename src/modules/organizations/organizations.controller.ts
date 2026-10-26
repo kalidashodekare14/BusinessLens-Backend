@@ -1,18 +1,17 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { CurrentOrg } from '../../common/decorators/current-org.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../common/types/authenticated-request';
+import { OrgMembershipGuard } from '../../common/guards/org-membership.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import type {
+  AuthenticatedUser,
+  CurrentOrganization,
+} from '../../common/types/authenticated-request';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import {
   OrganizationsService,
   type OrganizationPage,
@@ -41,10 +40,19 @@ export class OrganizationsController {
   }
 
   @Get(':organizationId')
-  get(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('organizationId', new ParseUUIDPipe({ version: '4' })) organizationId: string,
+  @UseGuards(OrgMembershipGuard)
+  get(@CurrentOrg() organization: CurrentOrganization): OrganizationView {
+    return organization;
+  }
+
+  @Patch(':organizationId')
+  @UseGuards(OrgMembershipGuard, RolesGuard)
+  @Roles('OWNER')
+  async update(
+    @CurrentOrg() organization: CurrentOrganization,
+    @Body() dto: UpdateOrganizationDto,
   ): Promise<OrganizationView> {
-    return this.organizations.getForUser(user.userId, organizationId);
+    const updated = await this.organizations.update(organization.id, dto);
+    return { ...updated, role: organization.role };
   }
 }
