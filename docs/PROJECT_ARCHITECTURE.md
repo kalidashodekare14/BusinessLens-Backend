@@ -98,8 +98,10 @@ A user belongs to organizations through `Membership`. All business data carries 
 - Migrations run as the database owner role. The application connects as a separate role `app_user` that is **not** a superuser and does **not** have `BYPASSRLS`.
 - Every tenant table (`ImportJob`, `Product`, `Order`, `OrderItem`, `AnalysisRun`, `Finding`, `FindingNote`, `AiExplanation`, `AuditLog`) has `ENABLE ROW LEVEL SECURITY` **and** `FORCE ROW LEVEL SECURITY`.
 - Policy on each (column names are camelCase and must be quoted in SQL):
-  `USING ("organizationId" = current_setting('app.organization_id', true)::uuid) WITH CHECK (same expression)`.
-  If the setting is missing, the cast yields NULL and no rows match (fail closed).
+  `USING ("organizationId" = current_setting('app.organization_id', true)) WITH CHECK (same expression)`.
+  Prisma maps id and organizationId columns to `TEXT`, so both sides of the comparison are text;
+  casting to `uuid` fails with "operator does not exist: text = uuid". If the setting is missing,
+  the comparison yields NULL and no rows match (fail closed).
 - `TenantPrismaService.run` opens an interactive transaction, executes `SELECT set_config('app.organization_id', $1, true)` (transaction-local), then runs the callback with the transaction client. Nothing outside that transaction may touch tenant tables.
 - `AuditLog.organizationId` is nullable (auth events happen before an organization exists). Audit rows with a null organization are written by a dedicated code path that sets no organization context and are never readable through tenant endpoints. The RLS policy for `AuditLog` therefore allows inserts when `organizationId` is null and restricts reads to matching organization.
 - **`Organization`, `Membership`, `User`, `RefreshToken` have no RLS in the MVP.** They are read before an organization context exists (login, list my organizations, create organization). Their protection is application-level: queries always filter by the authenticated `userId`, and a test proves a user cannot read or modify someone else's rows. (An RLS policy on `Organization` keyed only to the current organization would break listing and creation.)
