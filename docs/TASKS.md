@@ -45,7 +45,7 @@ Rules for this file:
 - [x] **T2.2** 🔒 `TenantPrismaService.run(organizationId, fn)`: interactive transaction + transaction-local `set_config('app.organization_id', ...)`. Add a request-scoped helper for controllers/services that reads the organization id from the verified guard result only.
 - [x] **T2.3** 🔒 Isolation test harness: factory that creates two organizations with two users and sample rows in every tenant table. DB-level tests (using the `app_user` connection): A cannot read, update or delete B's rows; inserting a row with B's `organizationId` under A's context fails; no context returns zero rows.
 - [x] **T2.4** 🔒 Worker tenancy helper: BullMQ processor base that requires `organizationId` in the payload, rejects jobs without it, and wraps work in `TenantPrismaService.run`. Test with a job for org A that tries to touch org B.
-- [ ] **T2.5** Convention check: a test or lint rule that fails if tenant modules import `PrismaService` directly (they must use `TenantPrismaService`). Document the pattern at the top of `src/prisma/tenant-prisma.service.ts`.
+- [x] **T2.5** Convention check: a test or lint rule that fails if tenant modules import `PrismaService` directly (they must use `TenantPrismaService`). Document the pattern at the top of `src/prisma/tenant-prisma.service.ts`.
 
 ## Phase 3 — CSV import (Day 3)
 
