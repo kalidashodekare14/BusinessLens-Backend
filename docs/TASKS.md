@@ -56,6 +56,9 @@ Rules for this file:
 - [x] **T3.5** `POST /imports/:importId/confirm` and the `process-import` processor for PRODUCTS (streaming parse, batches of 500, upsert by name, progress updates, capped error report).
 - [ ] **T3.6** ORDERS processing: group line items by order id, upsert orders by (`organizationId`, `externalId`), replace items on re-import, compute `lineTotal` and `total`, link or create products, keep excluded statuses stored. Handle an order whose rows span multiple batches correctly.
   *Tests:* re-import is idempotent; mixed good/bad rows; cancelled orders stored.
+  - [x] **T3.6a** Pure ORDERS grouping core: group validated rows by order id (including non-adjacent rows), detect order-level conflicts, compute exact line/order totals, enforce `Decimal(12,2)` bounds, and report per-row issues. *Tests:* grouping, conflicts, exact money, overflow boundaries.
+  - [ ] **T3.6b** ORDERS worker: enable ORDERS confirm, batch upsert orders and replace items, link/create products, persist progress and capped errors, and keep an order intact across batch boundaries. *Tests:* idempotent re-import, mixed good/bad rows.
+  - [ ] **T3.6c** ORDERS finish: cancelled/refunded statuses stored, error-report path, full lint/build/unit/e2e verification, then mark T3.6 complete when all sub-tasks pass.
 - [ ] **T3.7** Always delete the temp file when processing ends (success or failure). Scheduled cleanup of uploads older than 24 hours. `GET /imports`, `GET /imports/:importId`, `GET /imports/:importId/errors`.
 - [ ] **T3.8** `GET /products` and `GET /orders` (paginated, orders filterable by date range).
 - [ ] **T3.9** `scripts/generate-sample-data.ts` creating `sample-data/orders.csv` and `products.csv`: about 5 months of synthetic orders where the last 30 days show a revenue drop, an order-count drop, and one product dropping sharply, so all three rules trigger. Deterministic (seeded random).
