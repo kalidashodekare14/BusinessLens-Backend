@@ -6,13 +6,16 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, type ImportStatus, type ImportType } from '../../generated/prisma/client';
 import { apiError } from '../../common/errors/api-error';
 import { TenantPrismaService } from '../../prisma/tenant-prisma.service';
+import { JOB_NAMES, QUEUE_NAMES } from '../../queues/queue.constants';
+import { QueueService } from '../../queues/queue.service';
 import { AuditAction } from '../audit/audit.actions';
 import { AuditService } from '../audit/audit.service';
 import { assertCsvContent } from './csv/csv-content';
 import { CsvValidationError } from './csv/csv-error';
-import { normalizeDetectedHeaders, readCsvHeader } from './csv/header';
+import { normalizeDetectedHeaders, readCsvHeader, readStoredHeaders } from './csv/header';
 import { validateMapping, type CanonicalMapping } from './csv/mapping';
 import { readCsvPreview, type CsvPreview } from './csv/preview';
+import { resolveUploadPath } from './csv/storage-path';
 import { suggestMapping, type SuggestedMapping } from './csv/suggest-mapping';
 
 export interface ImportUploadView {
@@ -34,11 +37,10 @@ export interface ImportMappingView {
   preview: CsvPreview;
 }
 
-function detectedHeadersFrom(value: unknown): string[] {
-  if (!Array.isArray(value) || !value.every((header) => typeof header === 'string')) {
-    throw apiError(500, 'INTERNAL_ERROR', 'Import metadata is unavailable.');
-  }
-  return value;
+export interface ImportConfirmView {
+  id: string;
+  type: ImportType;
+  status: ImportStatus;
 }
 
 function hasErrnoCode(error: unknown, code: string): boolean {
@@ -72,6 +74,7 @@ export class ImportsService {
     private readonly config: ConfigService,
     private readonly tenantPrisma: TenantPrismaService,
     private readonly audit: AuditService,
+    private readonly queue: QueueService,
   ) {}
 
   async upload(
@@ -165,14 +168,26 @@ export class ImportsService {
       throw apiError(409, 'IMPORT_NOT_MAPPABLE', 'This import can no longer be mapped.');
     }
 
-    const detectedHeaders = detectedHeadersFrom(job.detectedHeaders);
+    const detectedHeaders = readStoredHeaders(job.detectedHeaders);
+    if (!detectedHeaders) {
+      throw apiError(500, 'INTERNAL_ERROR', 'Import metadata is unavailable.');
+    }
+
     const validation = validateMapping(job.type, detectedHeaders, input);
     if (!validation.valid) {
       throw apiError(400, 'VALIDATION_FAILED', 'Validation failed', validation.issues);
     }
 
+    const storagePath = resolveUploadPath(
+      this.config.getOrThrow<string>('UPLOAD_DIR'),
+      job.storagePath,
+    );
+    if (!storagePath) {
+      throw apiError(409, 'IMPORT_FILE_UNAVAILABLE', 'The uploaded file is no longer available.');
+    }
+
     const preview = await this.previewFile(
-      this.resolveStoragePath(job.storagePath),
+      storagePath,
       detectedHeaders,
       job.type,
       validation.mapping,
@@ -202,16 +217,88 @@ export class ImportsService {
     };
   }
 
-  private resolveStoragePath(storagePath: string): string {
-    const uploadDir = path.resolve(this.config.getOrThrow<string>('UPLOAD_DIR'));
-    const resolved = path.resolve(storagePath);
-    const relative = path.relative(uploadDir, resolved);
+  async confirm(
+    organizationId: string,
+    userId: string,
+    importId: string,
+  ): Promise<ImportConfirmView> {
+    const job = await this.tenantPrisma.run(organizationId, async (tx) => {
+      const found = await tx.importJob.findUnique({
+        where: { id: importId },
+        select: { id: true, type: true, status: true, columnMapping: true },
+      });
 
-    if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
-      throw apiError(409, 'IMPORT_FILE_UNAVAILABLE', 'The uploaded file is no longer available.');
+      if (!found) {
+        throw apiError(404, 'NOT_FOUND', 'Import not found.');
+      }
+      if (found.status !== 'MAPPED' || found.columnMapping === null) {
+        throw apiError(
+          409,
+          'IMPORT_NOT_CONFIRMABLE',
+          'This import cannot be confirmed in its current state.',
+        );
+      }
+      if (found.type !== 'PRODUCTS') {
+        // T3.6 adds ORDERS. Rejecting here avoids queuing work that cannot run.
+        throw apiError(422, 'UNSUPPORTED_IMPORT_TYPE', 'ORDERS imports are not supported yet.');
+      }
+
+      try {
+        return await tx.importJob.update({
+          where: { id: found.id, status: 'MAPPED' },
+          data: {
+            status: 'PROCESSING',
+            totalRows: 0,
+            processedRows: 0,
+            failedRows: 0,
+            errorReport: Prisma.DbNull,
+            completedAt: null,
+          },
+          select: { id: true, type: true, status: true },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          throw apiError(
+            409,
+            'IMPORT_NOT_CONFIRMABLE',
+            'This import cannot be confirmed in its current state.',
+          );
+        }
+        throw error;
+      }
+    });
+
+    try {
+      await this.queue.enqueue(
+        QUEUE_NAMES.importProcessing,
+        JOB_NAMES.processImport,
+        { organizationId, importJobId: job.id },
+        // One job per import; a duplicate confirm cannot start a second run.
+        { jobId: job.id },
+      );
+    } catch {
+      // Redis is not the source of truth: put the import back so the user can retry.
+      await this.tenantPrisma
+        .run(organizationId, (tx) =>
+          tx.importJob.updateMany({
+            where: { id: job.id, status: 'PROCESSING' },
+            data: { status: 'MAPPED' },
+          }),
+        )
+        .catch(() => undefined);
+      throw apiError(503, 'IMPORT_QUEUE_UNAVAILABLE', 'The import could not be queued.');
     }
 
-    return resolved;
+    this.audit.record({
+      action: AuditAction.IMPORT_CONFIRMED,
+      actorId: userId,
+      organizationId,
+      entityType: 'ImportJob',
+      entityId: job.id,
+      metadata: { type: job.type },
+    });
+
+    return job;
   }
 
   private async previewFile(

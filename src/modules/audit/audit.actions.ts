@@ -8,6 +8,7 @@ export const AuditAction = {
   ORGANIZATION_CREATED: 'organization.created',
   ORGANIZATION_UPDATED: 'organization.updated',
   IMPORT_UPLOADED: 'import.uploaded',
+  IMPORT_CONFIRMED: 'import.confirmed',
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

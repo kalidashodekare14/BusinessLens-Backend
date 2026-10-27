@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  HttpCode,
   Param,
   Post,
   Put,
@@ -22,7 +23,12 @@ import { MAX_CSV_BYTES } from './csv/csv-content';
 import { CreateImportDto } from './dto/create-import.dto';
 import { ImportIdParamDto } from './dto/import-id-param.dto';
 import { UpdateImportMappingDto } from './dto/update-import-mapping.dto';
-import { ImportsService, type ImportMappingView, type ImportUploadView } from './imports.service';
+import {
+  ImportsService,
+  type ImportConfirmView,
+  type ImportMappingView,
+  type ImportUploadView,
+} from './imports.service';
 
 @Controller('organizations/:organizationId/imports')
 @UseGuards(JwtAuthGuard, OrgMembershipGuard)
@@ -56,5 +62,15 @@ export class ImportsController {
     @Body() dto: UpdateImportMappingDto,
   ): Promise<ImportMappingView> {
     return this.imports.updateMapping(organization.id, params.importId, dto.mapping);
+  }
+
+  @Post(':importId/confirm')
+  @HttpCode(202)
+  confirm(
+    @CurrentOrg() organization: CurrentOrganization,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param() params: ImportIdParamDto,
+  ): Promise<ImportConfirmView> {
+    return this.imports.confirm(organization.id, user.userId, params.importId);
   }
 }

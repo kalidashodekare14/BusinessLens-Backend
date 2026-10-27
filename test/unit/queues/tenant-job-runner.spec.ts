@@ -57,4 +57,14 @@ describe('TenantJobRunner', () => {
       }),
     ).rejects.toThrow('handler failed');
   });
+
+  it('resolves the organization for processors that manage their own transactions', () => {
+    const organizationId = randomUUID();
+
+    expect(runner.resolveOrganizationId({ organizationId })).toBe(organizationId);
+    expect(() => runner.resolveOrganizationId({ organizationId: 'org-a' })).toThrow(
+      TenantJobPayloadError,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
 });
