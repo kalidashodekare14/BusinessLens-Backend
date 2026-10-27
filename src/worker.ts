@@ -1,10 +1,28 @@
 import 'reflect-metadata';
-import { loadConfigOrExit } from './config/configuration';
+import { NestFactory } from '@nestjs/core';
+import { ConfigValidationError } from './config/configuration';
+import { WorkerModule } from './worker.module';
 
-// The worker has no DI container until TASKS.md T3.1, so it validates env directly.
-// Requires .env to be loaded by the caller: `start:worker` passes --env-file-if-exists.
-loadConfigOrExit(process.env);
+/**
+ * Worker entry point: no HTTP server, no request pipeline. BullMQ workers keep
+ * the process alive while consuming. Until T3.5 registers the import processor
+ * the process logs a warning and idles on its queue connections.
+ */
+async function bootstrap(): Promise<void> {
+  try {
+    // abortOnError: false makes config validation reject here instead of
+    // exiting inside Nest's ExceptionHandler, so we can print a clean message.
+    const context = await NestFactory.createApplicationContext(WorkerModule, {
+      abortOnError: false,
+    });
+    context.enableShutdownHooks();
+  } catch (error) {
+    if (error instanceof ConfigValidationError) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+}
 
-// The BullMQ processors are registered in TASKS.md T3.1. Until then this entry point
-// exists so the `start:worker` script has a real target and builds with the API.
-console.log('[worker] no processors registered yet (TASKS.md T3.1)');
+void bootstrap();

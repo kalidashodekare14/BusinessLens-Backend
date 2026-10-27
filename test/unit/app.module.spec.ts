@@ -22,5 +22,7 @@ describe('AppModule', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
     expect(moduleRef).toBeDefined();
+    // QueueService opens Redis connections for its producers; close them so Jest exits.
+    await moduleRef.close();
   });
 });
