@@ -3,7 +3,7 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ImportStatus, ImportType } from '../../generated/prisma/client';
+import { Prisma, type ImportStatus, type ImportType } from '../../generated/prisma/client';
 import { apiError } from '../../common/errors/api-error';
 import { TenantPrismaService } from '../../prisma/tenant-prisma.service';
 import { AuditAction } from '../audit/audit.actions';
@@ -11,6 +11,8 @@ import { AuditService } from '../audit/audit.service';
 import { assertCsvContent } from './csv/csv-content';
 import { CsvValidationError } from './csv/csv-error';
 import { normalizeDetectedHeaders, readCsvHeader } from './csv/header';
+import { validateMapping, type CanonicalMapping } from './csv/mapping';
+import { readCsvPreview, type CsvPreview } from './csv/preview';
 import { suggestMapping, type SuggestedMapping } from './csv/suggest-mapping';
 
 export interface ImportUploadView {
@@ -21,6 +23,31 @@ export interface ImportUploadView {
   detectedHeaders: string[];
   suggestedMapping: SuggestedMapping;
   createdAt: Date;
+}
+
+export interface ImportMappingView {
+  id: string;
+  type: ImportType;
+  status: ImportStatus;
+  detectedHeaders: string[];
+  mapping: CanonicalMapping;
+  preview: CsvPreview;
+}
+
+function detectedHeadersFrom(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.every((header) => typeof header === 'string')) {
+    throw apiError(500, 'INTERNAL_ERROR', 'Import metadata is unavailable.');
+  }
+  return value;
+}
+
+function hasErrnoCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === code
+  );
 }
 
 /**
@@ -108,6 +135,99 @@ export class ImportsService {
     } catch (error) {
       if (error instanceof CsvValidationError) {
         throw apiError(422, 'INVALID_CSV_FILE', error.message);
+      }
+      throw error;
+    }
+  }
+
+  async updateMapping(
+    organizationId: string,
+    importId: string,
+    input: Record<string, unknown>,
+  ): Promise<ImportMappingView> {
+    const job = await this.tenantPrisma.run(organizationId, (tx) =>
+      tx.importJob.findUnique({
+        where: { id: importId },
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          detectedHeaders: true,
+          storagePath: true,
+        },
+      }),
+    );
+
+    if (!job) {
+      throw apiError(404, 'NOT_FOUND', 'Import not found.');
+    }
+    if (job.status !== 'UPLOADED' && job.status !== 'MAPPED') {
+      throw apiError(409, 'IMPORT_NOT_MAPPABLE', 'This import can no longer be mapped.');
+    }
+
+    const detectedHeaders = detectedHeadersFrom(job.detectedHeaders);
+    const validation = validateMapping(job.type, detectedHeaders, input);
+    if (!validation.valid) {
+      throw apiError(400, 'VALIDATION_FAILED', 'Validation failed', validation.issues);
+    }
+
+    const preview = await this.previewFile(
+      this.resolveStoragePath(job.storagePath),
+      detectedHeaders,
+      job.type,
+      validation.mapping,
+    );
+
+    try {
+      await this.tenantPrisma.run(organizationId, (tx) =>
+        tx.importJob.update({
+          where: { id: job.id, status: { in: ['UPLOADED', 'MAPPED'] } },
+          data: { status: 'MAPPED', columnMapping: validation.mapping },
+        }),
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw apiError(409, 'IMPORT_NOT_MAPPABLE', 'This import can no longer be mapped.');
+      }
+      throw error;
+    }
+
+    return {
+      id: job.id,
+      type: job.type,
+      status: 'MAPPED',
+      detectedHeaders,
+      mapping: validation.mapping,
+      preview,
+    };
+  }
+
+  private resolveStoragePath(storagePath: string): string {
+    const uploadDir = path.resolve(this.config.getOrThrow<string>('UPLOAD_DIR'));
+    const resolved = path.resolve(storagePath);
+    const relative = path.relative(uploadDir, resolved);
+
+    if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw apiError(409, 'IMPORT_FILE_UNAVAILABLE', 'The uploaded file is no longer available.');
+    }
+
+    return resolved;
+  }
+
+  private async previewFile(
+    storagePath: string,
+    detectedHeaders: string[],
+    type: ImportType,
+    mapping: CanonicalMapping,
+  ): Promise<CsvPreview> {
+    try {
+      return await readCsvPreview(storagePath, detectedHeaders, type, mapping);
+    } catch (error) {
+      if (error instanceof CsvValidationError) {
+        throw apiError(409, 'IMPORT_FILE_INVALID', error.message);
+      }
+      if (hasErrnoCode(error, 'ENOENT')) {
+        throw apiError(409, 'IMPORT_FILE_UNAVAILABLE', 'The uploaded file is no longer available.');
       }
       throw error;
     }
