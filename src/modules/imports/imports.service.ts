@@ -238,11 +238,6 @@ export class ImportsService {
           'This import cannot be confirmed in its current state.',
         );
       }
-      if (found.type !== 'PRODUCTS') {
-        // T3.6 adds ORDERS. Rejecting here avoids queuing work that cannot run.
-        throw apiError(422, 'UNSUPPORTED_IMPORT_TYPE', 'ORDERS imports are not supported yet.');
-      }
-
       try {
         return await tx.importJob.update({
           where: { id: found.id, status: 'MAPPED' },

@@ -40,12 +40,53 @@ const ORDERS_CSV =
   'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
   '1001,2026-01-01,completed,Widget,SKU-1,1,9.99\n';
 
+const MIXED_ORDERS_CSV =
+  'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
+  '1001,2026-01-01,completed,Widget,SKU-1,2,9.99\n' +
+  '1002,2026-01-02,cancelled,Gadget,SKU-2,1,19.99\n' +
+  '1001,2026-01-01,completed,Gizmo,SKU-3,1,4.99\n' +
+  '1003,2026-01-03,completed,Broken,SKU-B,not-a-qty,4.99\n';
+
 function productsCsv(count: number, price = '9.99'): string {
   const rows = Array.from(
     { length: count },
     (_, index) => `Product ${index + 1},SKU-${index + 1},${price}`,
   );
   return ['Name,SKU,Price', ...rows].join('\n') + '\n';
+}
+
+function ordersAcrossBatchBoundaryCsv(): string {
+  const rows = ['Order ID,Order Date,Status,Product,SKU,Qty,Unit Price'];
+  for (let index = 1; index <= 499; index += 1) {
+    rows.push(`B-${index},2026-01-01,completed,Product ${index},SKU-${index},1,1.00`);
+  }
+  rows.push('B-500,2026-01-02,completed,Product 500,SKU-500,2,9.99');
+  rows.push('B-500,2026-01-02,completed,Product 500B,SKU-500B,1,4.99');
+  return rows.join('\n') + '\n';
+}
+
+function findOrder<T extends { externalId: string }>(orders: readonly T[], externalId: string): T {
+  const order = orders.find((candidate) => candidate.externalId === externalId);
+  if (!order) {
+    throw new Error(`Order ${externalId} was not imported`);
+  }
+  return order;
+}
+
+function findItem<T extends { productName: string }>(items: readonly T[], name: string): T {
+  const item = items.find((candidate) => candidate.productName === name);
+  if (!item) {
+    throw new Error(`Item ${name} was not imported`);
+  }
+  return item;
+}
+
+function findProduct<T extends { name: string }>(products: readonly T[], name: string): T {
+  const product = products.find((candidate) => candidate.name === name);
+  if (!product) {
+    throw new Error(`Product ${name} was not imported`);
+  }
+  return product;
 }
 
 describe('import confirmation and processing (e2e)', () => {
@@ -89,6 +130,8 @@ describe('import confirmation and processing (e2e)', () => {
 
     const tenant = ctx.app.get(TenantPrismaService);
     for (const id of createdOrganizationIds) {
+      await tenant.run(id, (tx) => tx.orderItem.deleteMany({ where: { organizationId: id } }));
+      await tenant.run(id, (tx) => tx.order.deleteMany({ where: { organizationId: id } }));
       await tenant.run(id, (tx) => tx.product.deleteMany({ where: { organizationId: id } }));
       await tenant.run(id, (tx) => tx.importJob.deleteMany({ where: { organizationId: id } }));
     }
@@ -153,6 +196,12 @@ describe('import confirmation and processing (e2e)', () => {
     return uploaded.id;
   }
 
+  async function mappedOrders(csv = MIXED_ORDERS_CSV, orgId = organizationId) {
+    const uploaded = await upload(csv, 'ORDERS', orgId);
+    await map(uploaded.id, ORDER_MAPPING, orgId);
+    return uploaded.id;
+  }
+
   function confirm(importId: string, options: { orgId?: string; token?: string } = {}) {
     return request(ctx.server)
       .post(`${endpoint(options.orgId)}/${importId}/confirm`)
@@ -181,6 +230,16 @@ describe('import confirmation and processing (e2e)', () => {
       .run(orgId, (tx) =>
         tx.product.findMany({ where: { organizationId: orgId }, orderBy: { name: 'asc' } }),
       );
+  }
+
+  async function storedOrders(orgId = organizationId) {
+    return ctx.app.get(TenantPrismaService).run(orgId, (tx) =>
+      tx.order.findMany({
+        where: { organizationId: orgId },
+        orderBy: { externalId: 'asc' },
+        include: { items: { orderBy: { productName: 'asc' } } },
+      }),
+    );
   }
 
   async function runProcessor(importId: string, orgId = organizationId): Promise<void> {
@@ -246,7 +305,26 @@ describe('import confirmation and processing (e2e)', () => {
       );
     });
 
-    it('rejects an unmapped, already-processing or unsupported import', async () => {
+    it('queues a mapped ORDERS import and returns 202', async () => {
+      const importId = await mappedOrders(ORDERS_CSV);
+
+      const res = await confirm(importId);
+
+      expect(res.status).toBe(202);
+      expect(res.body.data).toEqual({
+        id: importId,
+        type: 'ORDERS',
+        status: 'PROCESSING',
+      });
+      expect(queueSpy).toHaveBeenCalledWith(
+        QUEUE_NAMES.importProcessing,
+        JOB_NAMES.processImport,
+        { organizationId, importJobId: importId },
+        { jobId: importId },
+      );
+    });
+
+    it('rejects an unmapped or already-processing import', async () => {
       const uploaded = await upload(MIXED_PRODUCTS_CSV);
 
       const unmapped = await confirm(uploaded.id);
@@ -259,12 +337,6 @@ describe('import confirmation and processing (e2e)', () => {
       const processing = await confirm(uploaded.id);
       expect(processing.status).toBe(409);
       expect(processing.body.error.code).toBe('IMPORT_NOT_CONFIRMABLE');
-
-      const orders = await upload(ORDERS_CSV, 'ORDERS');
-      await map(orders.id, ORDER_MAPPING);
-      const unsupported = await confirm(orders.id);
-      expect(unsupported.status).toBe(422);
-      expect(unsupported.body.error.code).toBe('UNSUPPORTED_IMPORT_TYPE');
       expect(queueSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -430,6 +502,195 @@ describe('import confirmation and processing (e2e)', () => {
 
       expect((await storedJob(otherImport, otherOrgId))?.status).toBe('PROCESSING');
       expect(await storedProducts(otherOrgId)).toHaveLength(0);
+    });
+
+    it('imports orders, groups non-adjacent rows and stores cancelled status', async () => {
+      const importId = await mappedOrders(MIXED_ORDERS_CSV);
+      await confirm(importId);
+
+      await runProcessor(importId);
+
+      expect(await storedJob(importId)).toMatchObject({
+        status: 'COMPLETED',
+        totalRows: 4,
+        processedRows: 4,
+        failedRows: 1,
+        errorReport: [{ rowNumber: 4, field: 'quantity', reason: 'must be a positive integer' }],
+      });
+
+      const orders = await storedOrders();
+      expect(orders).toHaveLength(2);
+
+      const completed = findOrder(orders, '1001');
+      expect(completed.status).toBe('completed');
+      expect(completed.orderedAt.toISOString()).toBe('2026-01-01T00:00:00.000Z');
+      expect(completed.total.toFixed(2)).toBe('24.97');
+      expect(completed.importJobId).toBe(importId);
+      expect(completed.items.map((item) => item.productName)).toEqual(['Gizmo', 'Widget']);
+      expect(findItem(completed.items, 'Widget')).toMatchObject({ quantity: 2 });
+      expect(findItem(completed.items, 'Widget').lineTotal.toFixed(2)).toBe('19.98');
+
+      const cancelled = findOrder(orders, '1002');
+      expect(cancelled.status).toBe('cancelled');
+      expect(cancelled.orderedAt.toISOString()).toBe('2026-01-02T00:00:00.000Z');
+      expect(cancelled.total.toFixed(2)).toBe('19.99');
+      expect(cancelled.items).toHaveLength(1);
+
+      const products = await storedProducts();
+      expect(products.map((product) => product.name)).toEqual(['Gadget', 'Gizmo', 'Widget']);
+      const widget = findProduct(products, 'Widget');
+      expect(widget.sku).toBe('SKU-1');
+      expect(widget.price).toBeNull();
+      expect(findItem(completed.items, 'Widget').productId).toBe(widget.id);
+    });
+
+    it('re-imports an order idempotently and replaces its items', async () => {
+      const first = await mappedOrders(
+        'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
+          '2001,2026-02-01,completed,Widget,SKU-1,1,9.99\n' +
+          '2001,2026-02-01,completed,Gadget,SKU-2,1,19.99\n',
+      );
+      await confirm(first);
+      await runProcessor(first);
+
+      const second = await mappedOrders(
+        'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
+          '2001,2026-02-01,cancelled,Widget,SKU-1,3,9.99\n',
+      );
+      await confirm(second);
+      await runProcessor(second);
+
+      const order = findOrder(await storedOrders(), '2001');
+      expect(order.status).toBe('cancelled');
+      expect(order.total.toFixed(2)).toBe('29.97');
+      expect(order.importJobId).toBe(second);
+      expect(order.items).toHaveLength(1);
+      expect(findItem(order.items, 'Widget')).toMatchObject({ quantity: 3 });
+      expect(findItem(order.items, 'Widget').lineTotal.toFixed(2)).toBe('29.97');
+    });
+
+    it('keeps an order intact when its rows cross a batch boundary', async () => {
+      const importId = await mappedOrders(ordersAcrossBatchBoundaryCsv());
+      await confirm(importId);
+
+      await runProcessor(importId);
+
+      expect(await storedJob(importId)).toMatchObject({
+        status: 'COMPLETED',
+        totalRows: 501,
+        processedRows: 501,
+        failedRows: 0,
+        errorReport: null,
+      });
+
+      const orders = await storedOrders();
+      expect(orders).toHaveLength(500);
+      const boundary = findOrder(orders, 'B-500');
+      expect(boundary.items).toHaveLength(2);
+      expect(boundary.total.toFixed(2)).toBe('24.97');
+      expect(await storedProducts()).toHaveLength(501);
+    }, 60_000);
+
+    it('writes no orders when the stored ORDERS file is gone', async () => {
+      const importId = await mappedOrders(MIXED_ORDERS_CSV);
+      await confirm(importId);
+      await unlink(await storagePathOf(importId));
+
+      await expect(runProcessor(importId)).resolves.toBeUndefined();
+
+      expect((await storedJob(importId))?.status).toBe('FAILED');
+      expect(await storedOrders()).toHaveLength(0);
+      expect(await storedProducts()).toHaveLength(0);
+    });
+
+    it('fails an ORDERS import where every row is invalid', async () => {
+      const importId = await mappedOrders(
+        'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
+          '3001,2026-03-01,completed,Widget,SKU-1,0,9.99\n' +
+          '3002,2026-03-01,completed,Gadget,SKU-2,zero,19.99\n',
+      );
+      await confirm(importId);
+      await runProcessor(importId);
+
+      const stored = await storedJob(importId);
+      expect(stored).toMatchObject({
+        status: 'FAILED',
+        totalRows: 2,
+        processedRows: 2,
+        failedRows: 2,
+      });
+      expect(stored?.errorReport).toHaveLength(2);
+      expect(await storedOrders()).toHaveLength(0);
+    });
+
+    it('caps the ORDERS error report', async () => {
+      const rows = Array.from(
+        { length: 1001 },
+        (_, index) => `C-${index + 1},2026-05-01,completed,Widget,SKU-1,0,9.99`,
+      );
+      const importId = await mappedOrders(
+        ['Order ID,Order Date,Status,Product,SKU,Qty,Unit Price', ...rows].join('\n') + '\n',
+      );
+      await confirm(importId);
+      await runProcessor(importId);
+
+      const stored = await storedJob(importId);
+      expect(stored).toMatchObject({
+        status: 'FAILED',
+        totalRows: 1001,
+        processedRows: 1001,
+        failedRows: 1001,
+      });
+      expect(stored?.errorReport).toHaveLength(1000);
+      expect(await storedOrders()).toHaveLength(0);
+    });
+
+    it('links existing products and creates missing ones without overwriting the catalog', async () => {
+      const productsImport = await mappedProducts(
+        'Name,SKU,Price\nWidget,SKU-1,9.99\nGadget,SKU-2,19.99\n',
+      );
+      await confirm(productsImport);
+      await runProcessor(productsImport);
+
+      const ordersImport = await mappedOrders(
+        'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
+          '4001,2026-04-01,completed,Widget,NEW-SKU,1,7.50\n' +
+          '4001,2026-04-01,completed,New Product,SKU-N,2,3.00\n',
+      );
+      await confirm(ordersImport);
+      await runProcessor(ordersImport);
+
+      const products = await storedProducts();
+      expect(products).toHaveLength(3);
+      const widget = findProduct(products, 'Widget');
+      expect(widget.sku).toBe('SKU-1');
+      expect(widget.price?.toFixed(2)).toBe('9.99');
+      const created = findProduct(products, 'New Product');
+      expect(created.sku).toBe('SKU-N');
+      expect(created.price).toBeNull();
+
+      const order = findOrder(await storedOrders(), '4001');
+      expect(findItem(order.items, 'Widget').productId).toBe(widget.id);
+      expect(findItem(order.items, 'New Product').productId).toBe(created.id);
+      expect(order.total.toFixed(2)).toBe('13.50');
+    });
+
+    it('cannot process another organization’s ORDERS import', async () => {
+      const otherOrg = await request(ctx.server)
+        .post('/api/v1/organizations')
+        .set(auth())
+        .send({ name: 'Other Orders Co' });
+      expect(otherOrg.status).toBe(201);
+      createdOrganizationIds.push(otherOrg.body.data.id);
+      const otherOrgId = otherOrg.body.data.id as string;
+
+      const otherImport = await mappedOrders(MIXED_ORDERS_CSV, otherOrgId);
+      await confirm(otherImport, { orgId: otherOrgId });
+
+      await expect(runProcessor(otherImport)).rejects.toThrow('Import job not found.');
+
+      expect((await storedJob(otherImport, otherOrgId))?.status).toBe('PROCESSING');
+      expect(await storedOrders(otherOrgId)).toHaveLength(0);
     });
   });
 });
