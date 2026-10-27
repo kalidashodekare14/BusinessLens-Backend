@@ -544,6 +544,25 @@ describe('import confirmation and processing (e2e)', () => {
       expect(findItem(completed.items, 'Widget').productId).toBe(widget.id);
     });
 
+    it('stores cancelled and refunded order statuses', async () => {
+      const importId = await mappedOrders(
+        'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
+          '5001,2026-06-01,cancelled,Widget,SKU-1,1,9.99\n' +
+          '5002,2026-06-01,Refunded,Gadget,SKU-2,1,19.99\n',
+      );
+      await confirm(importId);
+      await runProcessor(importId);
+
+      const orders = await storedOrders();
+      expect(findOrder(orders, '5001').status).toBe('cancelled');
+      expect(findOrder(orders, '5002').status).toBe('Refunded');
+      expect(await storedJob(importId)).toMatchObject({
+        status: 'COMPLETED',
+        totalRows: 2,
+        failedRows: 0,
+      });
+    });
+
     it('re-imports an order idempotently and replaces its items', async () => {
       const first = await mappedOrders(
         'Order ID,Order Date,Status,Product,SKU,Qty,Unit Price\n' +
