@@ -17,6 +17,7 @@
     "pretest:e2e": "prisma generate",
     "test:e2e": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.e2e.config.js",
     "prisma:generate": "prisma generate",
+    "generate:sample-data": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-sample-data.ts",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "start:api": "npm run build && node --env-file-if-exists=.env dist/main.js",
     "start:worker": "npm run build && node --env-file-if-exists=.env dist/worker.js"
