@@ -60,7 +60,7 @@ Rules for this file:
   - [x] **T3.6b** ORDERS worker: enable ORDERS confirm, batch upsert orders and replace items, link/create products, persist progress and capped errors, and keep an order intact across batch boundaries. *Tests:* idempotent re-import, mixed good/bad rows.
   - [x] **T3.6c** ORDERS finish: cancelled/refunded statuses stored, error-report path, full lint/build/unit/e2e verification, then mark T3.6 complete when all sub-tasks pass.
 - [x] **T3.7** Always delete the temp file when processing ends (success or failure). Scheduled cleanup of uploads older than 24 hours. `GET /imports`, `GET /imports/:importId`, `GET /imports/:importId/errors`.
-- [ ] **T3.8** `GET /products` and `GET /orders` (paginated, orders filterable by date range).
+- [x] **T3.8** `GET /products` and `GET /orders` (paginated, orders filterable by date range).
 - [ ] **T3.9** `scripts/generate-sample-data.ts` creating `sample-data/orders.csv` and `products.csv`: about 5 months of synthetic orders where the last 30 days show a revenue drop, an order-count drop, and one product dropping sharply, so all three rules trigger. Deterministic (seeded random).
 
 ## Phase 4 — Analysis (Day 4)
