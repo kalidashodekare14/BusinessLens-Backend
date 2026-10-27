@@ -50,7 +50,7 @@ Rules for this file:
 ## Phase 3 — CSV import (Day 3)
 
 - [x] **T3.1** BullMQ setup: `queue.module.ts`, `queue.constants.ts` (`import-processing`, `analysis`, `ai-explanation`), `worker.ts` and `worker.module.ts` bootstrapping processors.
-- [ ] **T3.2** `POST /imports` (multipart): 5 MB limit, `.csv` only, temp file in `UPLOAD_DIR`, create `ImportJob`, read header row, return `detectedHeaders` and a suggested mapping (synonym table per §8). Audit event.
+- [x] **T3.2** `POST /imports` (multipart): 5 MB limit, `.csv` only, temp file in `UPLOAD_DIR`, create `ImportJob`, read header row, return `detectedHeaders` and a suggested mapping (synonym table per §8). Audit event.
 - [ ] **T3.3** Canonical field definitions for ORDERS and PRODUCTS (§8) and the row validator (types, required fields, positive quantity, non-negative price, parseable dates). Pure functions with thorough unit tests.
 - [ ] **T3.4** `PUT /imports/:importId/mapping`: validate required fields are mapped, save mapping, return a 20-row preview with per-row errors. Status `MAPPED`.
 - [ ] **T3.5** `POST /imports/:importId/confirm` and the `process-import` processor for PRODUCTS (streaming parse, batches of 500, upsert by name, progress updates, capped error report).

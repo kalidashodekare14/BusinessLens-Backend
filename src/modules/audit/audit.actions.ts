@@ -7,6 +7,7 @@ export const AuditAction = {
   USER_PASSWORD_CHANGED: 'user.password_changed',
   ORGANIZATION_CREATED: 'organization.created',
   ORGANIZATION_UPDATED: 'organization.updated',
+  IMPORT_UPLOADED: 'import.uploaded',
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
