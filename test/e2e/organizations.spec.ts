@@ -71,8 +71,11 @@ describe('organizations (e2e)', () => {
     const list = await request(ctx.server).get(ORGANIZATIONS);
     const create = await request(ctx.server).post(ORGANIZATIONS).send({ name: 'Acme' });
     const detail = await request(ctx.server).get(`${ORGANIZATIONS}/${randomUUID()}`);
+    const update = await request(ctx.server)
+      .patch(`${ORGANIZATIONS}/${randomUUID()}`)
+      .send({ name: 'Acme' });
 
-    for (const res of [list, create, detail]) {
+    for (const res of [list, create, detail, update]) {
       expect(res.status).toBe(401);
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     }
@@ -208,5 +211,73 @@ describe('organizations (e2e)', () => {
 
     const malformed = await request(ctx.server).get(`${ORGANIZATIONS}/not-a-uuid`).set(auth());
     expect(malformed.status).toBe(400);
+    expect(malformed.body.error.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'organizationId' })]),
+    );
+  });
+
+  it('updates the organization for an OWNER only and never trusts a supplied id', async () => {
+    const prisma = ctx.app.get(PrismaService);
+    const created = await createOrganization(session.accessToken, 'Acme');
+    const other = await createOtherUser();
+    const otherOrganization = await createOrganization(other.session.accessToken, 'Other Co');
+
+    const ownUpdate = await request(ctx.server)
+      .patch(`${ORGANIZATIONS}/${created.id}`)
+      .set(auth())
+      .send({ name: '  Acme International  ' });
+
+    expect(ownUpdate.status).toBe(200);
+    expect(ownUpdate.body.data).toMatchObject({
+      id: created.id,
+      name: 'Acme International',
+      currency: 'USD',
+      timezone: 'UTC',
+      role: 'OWNER',
+    });
+    expect(Number.isNaN(Date.parse(ownUpdate.body.data.updatedAt))).toBe(false);
+
+    const storedName = async (id: string): Promise<string | undefined> =>
+      (await prisma.organization.findUnique({ where: { id }, select: { name: true } }))?.name;
+
+    expect(await storedName(created.id)).toBe('Acme International');
+
+    const outsider = await request(ctx.server)
+      .patch(`${ORGANIZATIONS}/${created.id}`)
+      .set(auth(other.session.accessToken))
+      .send({ name: 'Hijacked' });
+    expect(outsider.status).toBe(404);
+    expect(await storedName(created.id)).toBe('Acme International');
+
+    await prisma.membership.create({
+      data: { userId: other.user.id, organizationId: created.id, role: 'MEMBER' },
+    });
+
+    const member = await request(ctx.server)
+      .patch(`${ORGANIZATIONS}/${created.id}`)
+      .set(auth(other.session.accessToken))
+      .send({ name: 'Member Edit' });
+    expect(member.status).toBe(403);
+    expect(member.body.error.code).toBe('FORBIDDEN');
+    expect(await storedName(created.id)).toBe('Acme International');
+
+    const bodySpoof = await request(ctx.server)
+      .patch(`${ORGANIZATIONS}/${created.id}`)
+      .set(auth())
+      .send({ name: 'Body Spoof', organizationId: otherOrganization.id });
+    expect(bodySpoof.status).toBe(400);
+    expect(bodySpoof.body.error.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'organizationId' })]),
+    );
+
+    const querySpoof = await request(ctx.server)
+      .patch(`${ORGANIZATIONS}/${created.id}`)
+      .query({ organizationId: otherOrganization.id })
+      .set(auth())
+      .send({ name: 'Query Spoof' });
+    expect(querySpoof.status).toBe(200);
+
+    expect(await storedName(created.id)).toBe('Query Spoof');
+    expect(await storedName(otherOrganization.id)).toBe('Other Co');
   });
 });
