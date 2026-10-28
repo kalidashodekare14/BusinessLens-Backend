@@ -11,8 +11,13 @@ import type { QueueProcessor } from '../../queues/queue-processor';
 import { TenantJobRunner } from '../../queues/tenant-job-runner';
 import { readStoredHeaders } from './csv/header';
 import { validateMapping, type CanonicalMapping } from './csv/mapping';
+import { groupOrderRows, type GroupedOrder, type OrderLineRow } from './csv/order-grouper';
 import { createRowMapper } from './csv/row-mapper';
-import { validateProductRow, type ValidatedProductRow } from './csv/row-validator';
+import {
+  validateOrderRow,
+  validateProductRow,
+  type ValidatedProductRow,
+} from './csv/row-validator';
 import { resolveUploadPath } from './csv/storage-path';
 
 export const IMPORT_BATCH_SIZE = 500;
@@ -66,10 +71,10 @@ function isFileReadError(error: unknown): boolean {
 }
 
 /**
- * PRODUCTS import worker (TASKS.md T3.5).
+ * CSV import worker for PRODUCTS and ORDERS (TASKS.md T3.5–T3.6).
  *
  * This processor intentionally does not extend `TenantJobProcessor`: every batch
- * commits its products and progress in its own tenant transaction, so the polling
+ * commits its rows and progress in its own tenant transaction, so the polling
  * endpoints can see progress. The base class would hold one transaction open for
  * the whole file and hide every checkpoint until the end. Payload validation still
  * goes through `TenantJobRunner`, and every query runs inside
@@ -116,17 +121,11 @@ export class ImportProcessor implements QueueProcessor {
       return;
     }
 
-    if (stored.type !== 'PRODUCTS') {
-      // T3.6 adds ORDERS. Confirm already rejects them; this is a defense in depth.
-      await this.markFailed(organizationId, importJobId);
-      return;
-    }
-
     const detectedHeaders = readStoredHeaders(stored.detectedHeaders);
     const storedMapping = readJsonObject(stored.columnMapping);
     const mapping =
       detectedHeaders && storedMapping
-        ? validateMapping('PRODUCTS', detectedHeaders, storedMapping)
+        ? validateMapping(stored.type, detectedHeaders, storedMapping)
         : null;
     const storagePath = resolveUploadPath(
       this.config.getOrThrow<string>('UPLOAD_DIR'),
@@ -140,13 +139,22 @@ export class ImportProcessor implements QueueProcessor {
 
     let outcome: ProcessingOutcome;
     try {
-      outcome = await this.processProducts(
-        organizationId,
-        importJobId,
-        storagePath,
-        detectedHeaders,
-        mapping.mapping,
-      );
+      outcome =
+        stored.type === 'PRODUCTS'
+          ? await this.processProducts(
+              organizationId,
+              importJobId,
+              storagePath,
+              detectedHeaders,
+              mapping.mapping,
+            )
+          : await this.processOrders(
+              organizationId,
+              importJobId,
+              storagePath,
+              detectedHeaders,
+              mapping.mapping,
+            );
       await this.finish(organizationId, importJobId, outcome);
     } catch {
       await this.markFailed(organizationId, importJobId).catch(() => undefined);
@@ -253,14 +261,7 @@ export class ImportProcessor implements QueueProcessor {
         } else {
           outcome.failedRows += 1;
           for (const issue of result.errors) {
-            if (outcome.errorReport.length >= IMPORT_ERROR_REPORT_LIMIT) {
-              break;
-            }
-            outcome.errorReport.push({
-              rowNumber: outcome.totalRows,
-              field: issue.field,
-              reason: issue.reason,
-            });
+            this.addImportError(outcome, { rowNumber: outcome.totalRows, ...issue });
           }
         }
 
@@ -280,6 +281,225 @@ export class ImportProcessor implements QueueProcessor {
     }
 
     return outcome;
+  }
+
+  private async processOrders(
+    organizationId: string,
+    importJobId: string,
+    storagePath: string,
+    detectedHeaders: string[],
+    mapping: CanonicalMapping,
+  ): Promise<ProcessingOutcome> {
+    const source = createReadStream(storagePath);
+    const parser = source.pipe(
+      parse({
+        bom: true,
+        relax_column_count: true,
+        skip_empty_lines: true,
+        trim: true,
+      }),
+    );
+    source.on('error', (error) => parser.destroy(error));
+
+    const mapRow = createRowMapper('ORDERS', detectedHeaders, mapping);
+    const outcome: ProcessingOutcome = {
+      totalRows: 0,
+      failedRows: 0,
+      errorReport: [],
+      fatal: false,
+    };
+    const lines: OrderLineRow[] = [];
+    let headerSeen = false;
+
+    const iterator = parser[Symbol.asyncIterator]();
+    try {
+      while (true) {
+        let next: IteratorResult<unknown>;
+        try {
+          next = await iterator.next();
+        } catch (error) {
+          if (isFileReadError(error)) {
+            outcome.fatal = true;
+            break;
+          }
+          throw error;
+        }
+
+        if (next.done) {
+          break;
+        }
+
+        const cells = (next.value as unknown[]).map((value) => String(value ?? ''));
+
+        if (!headerSeen) {
+          if (!headersMatch(cells, detectedHeaders)) {
+            outcome.fatal = true;
+            break;
+          }
+          headerSeen = true;
+          continue;
+        }
+
+        outcome.totalRows += 1;
+        const result = validateOrderRow(mapRow(cells));
+        if (result.valid) {
+          lines.push({ ...result.value, rowNumber: outcome.totalRows });
+        } else {
+          outcome.failedRows += 1;
+          for (const issue of result.errors) {
+            this.addImportError(outcome, { rowNumber: outcome.totalRows, ...issue });
+          }
+        }
+      }
+    } finally {
+      source.destroy();
+      parser.destroy();
+    }
+
+    // An order whose rows were cut off by a read error must not replace its
+    // existing items with an incomplete set, so a fatal file error writes nothing.
+    if (outcome.fatal) {
+      return outcome;
+    }
+
+    const grouped = groupOrderRows(lines);
+    outcome.failedRows += grouped.failedRowNumbers.size;
+    for (const issue of grouped.issues) {
+      this.addImportError(outcome, issue);
+    }
+
+    let settledRows = outcome.failedRows;
+    let batch: GroupedOrder[] = [];
+    let batchRows = 0;
+
+    const flush = async (): Promise<void> => {
+      if (batch.length === 0) {
+        return;
+      }
+      const nextSettledRows = settledRows + batchRows;
+      await this.writeOrderBatch(organizationId, importJobId, batch, outcome, nextSettledRows);
+      settledRows = nextSettledRows;
+      batch = [];
+      batchRows = 0;
+    };
+
+    for (const order of grouped.orders) {
+      batch.push(order);
+      batchRows += order.rowNumbers.length;
+      if (batchRows >= IMPORT_BATCH_SIZE) {
+        await flush();
+      }
+    }
+    await flush();
+
+    return outcome;
+  }
+
+  private async writeOrderBatch(
+    organizationId: string,
+    importJobId: string,
+    orders: readonly GroupedOrder[],
+    outcome: ProcessingOutcome,
+    processedRows: number,
+  ): Promise<void> {
+    await this.tenantPrisma.run(organizationId, async (tx) => {
+      const names = new Set<string>();
+      const skuByName = new Map<string, string>();
+      for (const order of orders) {
+        for (const item of order.items) {
+          names.add(item.productName);
+          if (item.sku && !skuByName.has(item.productName)) {
+            skuByName.set(item.productName, item.sku);
+          }
+        }
+      }
+
+      const productNames = [...names];
+      const idByName = new Map<string, string>();
+      const existing = await tx.product.findMany({
+        where: { organizationId, name: { in: productNames } },
+        select: { id: true, name: true },
+      });
+      for (const product of existing) {
+        idByName.set(product.name, product.id);
+      }
+
+      const missing = productNames.filter((name) => !idByName.has(name));
+      if (missing.length > 0) {
+        await tx.product.createMany({
+          data: missing.map((name) => ({
+            organizationId,
+            name,
+            sku: skuByName.get(name) ?? null,
+          })),
+          skipDuplicates: true,
+        });
+        const created = await tx.product.findMany({
+          where: { organizationId, name: { in: missing } },
+          select: { id: true, name: true },
+        });
+        for (const product of created) {
+          idByName.set(product.name, product.id);
+        }
+      }
+
+      for (const order of orders) {
+        const items = order.items.map((item) => {
+          const productId = idByName.get(item.productName);
+          if (!productId) {
+            throw new Error('Product reference is unavailable.');
+          }
+          return {
+            organizationId,
+            productId,
+            productName: item.productName,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            lineTotal: item.lineTotal,
+          };
+        });
+
+        await tx.order.upsert({
+          where: {
+            organizationId_externalId: {
+              organizationId,
+              externalId: order.externalId,
+            },
+          },
+          create: {
+            organizationId,
+            externalId: order.externalId,
+            orderedAt: order.orderedAt,
+            status: order.status,
+            total: order.total,
+            importJobId,
+            items: { create: items },
+          },
+          update: {
+            orderedAt: order.orderedAt,
+            status: order.status,
+            total: order.total,
+            importJobId,
+            items: { deleteMany: {}, create: items },
+          },
+        });
+      }
+
+      await tx.importJob.update({
+        where: { id: importJobId },
+        data: {
+          processedRows,
+          failedRows: outcome.failedRows,
+          errorReport: this.errorReportJson(outcome.errorReport),
+        },
+      });
+    });
+  }
+
+  private addImportError(outcome: ProcessingOutcome, entry: ImportErrorEntry): void {
+    if (outcome.errorReport.length < IMPORT_ERROR_REPORT_LIMIT) {
+      outcome.errorReport.push(entry);
+    }
   }
 
   private async finish(
