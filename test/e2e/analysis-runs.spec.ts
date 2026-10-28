@@ -286,6 +286,37 @@ describe('analysis runs (e2e)', () => {
       expect(pageTwo.body.data[0].id).toBe(first.id);
     });
 
+    it('scopes the list to the organization and rejects outsiders', async () => {
+      const ownRun = await createRun();
+
+      const otherOrg = await request(ctx.server)
+        .post('/api/v1/organizations')
+        .set(auth())
+        .send({ name: 'Other List Co' });
+      expect(otherOrg.status).toBe(201);
+      createdOrganizationIds.push(otherOrg.body.data.id);
+      const otherRun = await createRun(otherOrg.body.data.id);
+
+      const list = await request(ctx.server).get(endpoint()).set(auth());
+      expect(list.status).toBe(200);
+      expect(list.body.data.map((run: { id: string }) => run.id)).toEqual([ownRun.id]);
+      expect(list.body.meta).toEqual({ page: 1, pageSize: 20, total: 1 });
+
+      const otherList = await request(ctx.server)
+        .get(endpoint(otherOrg.body.data.id))
+        .set(auth());
+      expect(otherList.body.data.map((run: { id: string }) => run.id)).toEqual([otherRun.id]);
+
+      const outsider = await registerUser(ctx.server, { email: uniqueEmail('analysis-list-out') });
+      createdEmails.push(outsider.email);
+      const outsiderSession = await loginUser(ctx.server, outsider);
+      const outside = await request(ctx.server)
+        .get(endpoint())
+        .set(auth(outsiderSession.accessToken));
+      expect(outside.status).toBe(404);
+      expect(outside.body.error.code).toBe('NOT_FOUND');
+    });
+
     it('returns the run detail and 404 for missing, cross-organization and outsider ids', async () => {
       const run = await createRun();
 

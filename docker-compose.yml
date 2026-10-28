@@ -1,5 +1,22 @@
 name: businesslens
 
+x-app-environment: &app-environment
+  NODE_ENV: development
+  PORT: '3000'
+  # The runtime role and the migration role are deliberately different (§6.3).
+  # app_user's local password is created by the app_user migration.
+  DATABASE_URL: postgresql://app_user:businesslens@postgres:5432/businesslens
+  DATABASE_MIGRATION_URL: postgresql://businesslens:${POSTGRES_PASSWORD:-businesslens}@postgres:5432/businesslens
+  REDIS_URL: redis://redis:6379
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+  UPLOAD_DIR: /app/uploads
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-placeholder-key}
+  GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+  AI_ENABLED: ${AI_ENABLED:-false}
+
 services:
   postgres:
     image: postgres:16
@@ -35,6 +52,66 @@ services:
       retries: 12
       start_period: 5s
 
+  migrate:
+    build:
+      context: .
+      target: build
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    environment:
+      DATABASE_MIGRATION_URL: postgresql://businesslens:${POSTGRES_PASSWORD:-businesslens}@postgres:5432/businesslens
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    environment: *app-environment
+    ports:
+      - '3000:3000'
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/health').then((r) => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    command: ['node', 'dist/worker.js']
+    environment: *app-environment
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
   redisdata:
+  uploads:

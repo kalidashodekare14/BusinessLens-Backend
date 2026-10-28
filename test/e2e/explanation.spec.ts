@@ -221,6 +221,22 @@ describe('ai explanation (e2e)', () => {
       ).toBeNull();
     });
 
+    it('does not let an org A job touch a finding owned by org B', async () => {
+      const otherOrg = await request(ctx.server)
+        .post('/api/v1/organizations')
+        .set(auth())
+        .send({ name: 'Other Worker Co' });
+      expect(otherOrg.status).toBe(201);
+      createdOrganizationIds.push(otherOrg.body.data.id);
+      const otherFindingId = await seedFinding(otherOrg.body.data.id);
+
+      const client = new FakeAiClient();
+      await newProcessor(client).process(aiJob(otherFindingId, organizationId));
+
+      expect(client.calls).toHaveLength(0);
+      expect(await storedExplanation(otherOrg.body.data.id, otherFindingId)).toBeNull();
+    });
+
     it('rejects a payload without a valid finding id', async () => {
       const client = new FakeAiClient();
       const job = {

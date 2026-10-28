@@ -1,16 +1,37 @@
+import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { ESLint } from 'eslint';
 
+const NON_TENANT_MODULES = new Set(['auth', 'users', 'organizations', 'audit', 'health']);
+
+function sourceFiles(directory: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...sourceFiles(fullPath));
+    } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) {
+      found.push(fullPath);
+    }
+  }
+  return found;
+}
+
 /**
- * Verifies the real eslint.config.mjs rule (not a copy): tenant modules must not
- * import PrismaService directly, while the non-tenant modules keep their exception.
+ * Verifies the real eslint.config.mjs rule (not a copy): tenant modules and the
+ * queue layer must not import PrismaService directly, while the non-tenant
+ * modules keep their exception. Every protected file is checked, so a stale
+ * sample cannot hide a regression elsewhere.
  */
-describe('tenant module PrismaService convention', () => {
+describe('tenant code PrismaService convention', () => {
   const projectRoot = process.cwd();
-  const tenantModuleFiles = [
-    path.join(projectRoot, 'src/modules/catalog/products.service.ts'),
-    // New in T6.2: the demo loader is a tenant module like any other.
-    path.join(projectRoot, 'src/modules/demo/demo.service.ts'),
+  const modulesRoot = path.join(projectRoot, 'src', 'modules');
+  const tenantModuleFiles = readdirSync(modulesRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !NON_TENANT_MODULES.has(entry.name))
+    .flatMap((entry) => sourceFiles(path.join(modulesRoot, entry.name)));
+  const protectedFiles = [
+    ...tenantModuleFiles,
+    ...sourceFiles(path.join(projectRoot, 'src', 'queues')),
   ];
   const nonTenantModuleFile = path.join(projectRoot, 'src/modules/auth/auth.service.ts');
 
@@ -29,10 +50,10 @@ describe('tenant module PrismaService convention', () => {
 
   it.each(
     [['../../prisma/prisma.service'], ['../../../prisma/prisma.service']].flatMap(([specifier]) =>
-      tenantModuleFiles.map((file) => [specifier, file] as const),
+      protectedFiles.map((file) => [specifier, file] as const),
     ),
   )(
-    'rejects a direct PrismaService import (%s) in a tenant module (%s)',
+    'rejects a direct PrismaService import (%s) in tenant code (%s)',
     async (specifier, filePath) => {
       const messages = await restrictedImportMessages(
         `import { PrismaService } from '${specifier}';\n`,
@@ -44,8 +65,8 @@ describe('tenant module PrismaService convention', () => {
     },
   );
 
-  it.each(tenantModuleFiles)(
-    'allows TenantPrismaService in a tenant module (%s)',
+  it.each(protectedFiles)(
+    'allows TenantPrismaService in tenant code (%s)',
     async (filePath) => {
       const messages = await restrictedImportMessages(
         "import { TenantPrismaService } from '../../prisma/tenant-prisma.service';\n",

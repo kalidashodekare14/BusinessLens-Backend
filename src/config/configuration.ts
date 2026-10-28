@@ -100,6 +100,13 @@ const envSchema = z
         message: "SameSite 'none' requires COOKIE_SECURE=true",
       });
     }
+    if (cfg.NODE_ENV === 'production' && !cfg.COOKIE_SECURE) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['COOKIE_SECURE'],
+        message: 'must be true when NODE_ENV=production',
+      });
+    }
     if (cfg.DATABASE_URL === cfg.DATABASE_MIGRATION_URL) {
       ctx.addIssue({
         code: 'custom',

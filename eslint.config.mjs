@@ -30,10 +30,11 @@ export default tseslint.config(
     },
   },
   {
-    // Tenant modules must go through TenantPrismaService (PROJECT_ARCHITECTURE.md §6.2–6.3).
-    // The excluded modules only touch non-tenant tables, or (audit) the dedicated
-    // null-organization audit path that runs before a tenant context exists.
-    files: ['src/modules/**/*.ts'],
+    // Tenant modules and queue processors must go through TenantPrismaService
+    // (PROJECT_ARCHITECTURE.md §6.2–6.3). The excluded modules only touch
+    // non-tenant tables, or (audit) the dedicated null-organization audit path
+    // that runs before a tenant context exists.
+    files: ['src/modules/**/*.ts', 'src/queues/**/*.ts'],
     ignores: [
       'src/modules/auth/**',
       'src/modules/users/**',

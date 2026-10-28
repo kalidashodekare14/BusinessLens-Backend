@@ -71,7 +71,7 @@ async function seed(): Promise<void> {
     const result = await demo.load(organization.id, user.id);
 
     console.log('Demo data queued successfully.');
-    console.log(`  user:    ${DEMO_EMAIL} (password: ${DEMO_PASSWORD})`);
+    console.log(`  user:    ${DEMO_EMAIL} (demo password documented in README.md)`);
     console.log(`  org:     ${organization.id} (${DEMO_ORG_NAME})`);
     for (const entry of result.imports) {
       console.log(`  import:  ${entry.id} (${entry.type}) → ${entry.status}`);

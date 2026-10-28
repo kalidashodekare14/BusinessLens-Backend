@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './interceptors/response-envelope.interceptor';
 import { accessLogMiddleware, requestIdMiddleware } from './request-id';
+import { setupSwagger } from './swagger/swagger';
 
 /**
  * Single wiring point for everything HTTP-related, shared by src/main.ts and the
@@ -35,4 +36,5 @@ export function configureApp(app: INestApplication): void {
   );
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ResponseEnvelopeInterceptor());
+  setupSwagger(app);
 }

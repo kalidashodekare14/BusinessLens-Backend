@@ -205,6 +205,20 @@ describe('import read endpoints (e2e)', () => {
       expect(other.status).toBe(200);
       expect(other.body.data.map((job: { id: string }) => job.id)).toEqual([foreign.id]);
     });
+
+    it('returns 404 to a user with no membership in the organization', async () => {
+      await upload(productCsv('Mine'));
+      const outsider = await registerUser(ctx.server, { email: uniqueEmail('import-read-out') });
+      createdEmails.push(outsider.email);
+      const outsiderSession = await loginUser(ctx.server, outsider);
+
+      const res = await request(ctx.server)
+        .get(endpoint())
+        .set(auth(outsiderSession.accessToken));
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
   });
 
   describe('GET /imports/:importId', () => {

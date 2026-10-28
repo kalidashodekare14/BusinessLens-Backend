@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform, type TransformFnParams } from 'class-transformer';
 import { IsString, MaxLength, MinLength } from 'class-validator';
 
@@ -6,6 +7,7 @@ function trimValue({ value }: TransformFnParams): unknown {
 }
 
 export class CreateOrganizationDto {
+  @ApiProperty({ minLength: 1, maxLength: 120, example: 'Acme Retail' })
   @Transform(trimValue)
   @IsString()
   @MinLength(1)

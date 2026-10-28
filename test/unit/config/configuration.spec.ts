@@ -117,6 +117,26 @@ describe('parseConfig', () => {
     expect(cfg.cookieSecure).toBe(true);
   });
 
+  it('rejects insecure cookies in production', () => {
+    const issues = issuesOf(withEnv({ NODE_ENV: 'production', COOKIE_SECURE: 'false' }));
+
+    expect(issues.join('\n')).toContain('COOKIE_SECURE:');
+    expect(issues.join('\n')).toContain('must be true when NODE_ENV=production');
+  });
+
+  it('accepts secure cookies in production', () => {
+    const cfg = parseConfig(
+      withEnv({
+        NODE_ENV: 'production',
+        COOKIE_SECURE: 'true',
+        COOKIE_SAMESITE: 'none',
+      }),
+    );
+
+    expect(cfg.nodeEnv).toBe('production');
+    expect(cfg.cookieSecure).toBe(true);
+  });
+
   it('rejects identical database URLs (owner and app_user must differ)', () => {
     const issues = issuesOf(withEnv({ DATABASE_MIGRATION_URL: VALID_ENV.DATABASE_URL as string }));
 
