@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { createConfigModuleOptions } from './config/config-module-options';
+import { AiModule } from './modules/ai/ai.module';
+import { AiProcessor } from './modules/ai/ai.processor';
 import { AnalysisProcessor } from './modules/analysis/analysis.processor';
 import { ImportProcessor } from './modules/imports/imports.processor';
 import { MetricsModule } from './modules/metrics/metrics.module';
@@ -12,15 +14,25 @@ import { WorkerRuntimeService, QUEUE_PROCESSORS } from './queues/worker-runtime.
  * pipeline. Processors register here as they are implemented.
  */
 @Module({
-  imports: [ConfigModule.forRoot(createConfigModuleOptions()), QueueModule, MetricsModule],
+  imports: [
+    ConfigModule.forRoot(createConfigModuleOptions()),
+    QueueModule,
+    MetricsModule,
+    AiModule,
+  ],
   providers: [
     WorkerRuntimeService,
     ImportProcessor,
     AnalysisProcessor,
+    AiProcessor,
     {
       provide: QUEUE_PROCESSORS,
-      inject: [ImportProcessor, AnalysisProcessor],
-      useFactory: (imports: ImportProcessor, analysis: AnalysisProcessor) => [imports, analysis],
+      inject: [ImportProcessor, AnalysisProcessor, AiProcessor],
+      useFactory: (imports: ImportProcessor, analysis: AnalysisProcessor, ai: AiProcessor) => [
+        imports,
+        analysis,
+        ai,
+      ],
     },
   ],
 })

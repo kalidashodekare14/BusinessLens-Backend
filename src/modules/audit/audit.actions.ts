@@ -10,6 +10,8 @@ export const AuditAction = {
   IMPORT_UPLOADED: 'import.uploaded',
   IMPORT_CONFIRMED: 'import.confirmed',
   ANALYSIS_STARTED: 'analysis.started',
+  FINDING_STATUS_CHANGED: 'finding.status_changed',
+  EXPLANATION_REGENERATED: 'explanation.regenerated',
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

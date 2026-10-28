@@ -1,5 +1,8 @@
 import request from 'supertest';
 import { Prisma } from '../../src/generated/prisma/client';
+import { AuditAction } from '../../src/modules/audit/audit.actions';
+import { AuditService } from '../../src/modules/audit/audit.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import { TenantPrismaService } from '../../src/prisma/tenant-prisma.service';
 import { deleteOrganizationsById, deleteUsersByEmail } from '../helpers/db';
 import {
@@ -355,6 +358,272 @@ describe('findings (e2e)', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    });
+  });
+
+  describe('PATCH /findings/:findingId/status', () => {
+    function statusEndpoint(findingId: string): string {
+      return `${endpoint()}/${findingId}/status`;
+    }
+
+    it('walks the workflow and manages resolvedAt', async () => {
+      const started = await request(ctx.server)
+        .patch(statusEndpoint(fixture.revenueFindingId))
+        .set(auth())
+        .send({ status: 'INVESTIGATING' });
+      expect(started.status).toBe(200);
+      expect(started.body.data).toMatchObject({
+        id: fixture.revenueFindingId,
+        status: 'INVESTIGATING',
+        resolvedAt: null,
+      });
+
+      const resolved = await request(ctx.server)
+        .patch(statusEndpoint(fixture.revenueFindingId))
+        .set(auth())
+        .send({ status: 'RESOLVED' });
+      expect(resolved.status).toBe(200);
+      expect(resolved.body.data.status).toBe('RESOLVED');
+      expect(resolved.body.data.resolvedAt).not.toBeNull();
+
+      const reopened = await request(ctx.server)
+        .patch(statusEndpoint(fixture.revenueFindingId))
+        .set(auth())
+        .send({ status: 'OPEN' });
+      expect(reopened.status).toBe(200);
+      expect(reopened.body.data).toMatchObject({ status: 'OPEN', resolvedAt: null });
+
+      const detail = await request(ctx.server)
+        .get(`${endpoint()}/${fixture.revenueFindingId}`)
+        .set(auth());
+      expect(detail.body.data).toMatchObject({ status: 'OPEN', resolvedAt: null });
+    });
+
+    it('rejects skipped, reversed and no-op transitions with 409', async () => {
+      const cases: Array<{ findingId: string; status: string }> = [
+        // OPEN cannot skip INVESTIGATING.
+        { findingId: fixture.revenueFindingId, status: 'RESOLVED' },
+        // No-op to the current status.
+        { findingId: fixture.revenueFindingId, status: 'OPEN' },
+        // INVESTIGATING cannot go straight back to OPEN.
+        { findingId: fixture.orderCountFindingId, status: 'OPEN' },
+        // RESOLVED can only reopen, not move backwards to INVESTIGATING.
+        { findingId: fixture.productFindingId, status: 'INVESTIGATING' },
+      ];
+
+      for (const testCase of cases) {
+        const res = await request(ctx.server)
+          .patch(statusEndpoint(testCase.findingId))
+          .set(auth())
+          .send({ status: testCase.status });
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('INVALID_TRANSITION');
+      }
+    });
+
+    it('rejects invalid status bodies with 400', async () => {
+      for (const body of [
+        {},
+        { status: 'BOGUS' },
+        { status: 'open' },
+        { status: 'OPEN', extra: true },
+      ]) {
+        const res = await request(ctx.server)
+          .patch(statusEndpoint(fixture.revenueFindingId))
+          .set(auth())
+          .send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('VALIDATION_FAILED');
+      }
+    });
+
+    it('returns 404 for missing, cross-organization and outsider ids', async () => {
+      const missing = await request(ctx.server)
+        .patch(statusEndpoint('00000000-0000-4000-8000-000000000000'))
+        .set(auth())
+        .send({ status: 'INVESTIGATING' });
+      expect(missing.status).toBe(404);
+      expect(missing.body.error.code).toBe('NOT_FOUND');
+
+      const otherOrg = await request(ctx.server)
+        .post('/api/v1/organizations')
+        .set(auth())
+        .send({ name: 'Other Status Co' });
+      expect(otherOrg.status).toBe(201);
+      createdOrganizationIds.push(otherOrg.body.data.id);
+      const otherFixture = await seedFindings(otherOrg.body.data.id);
+
+      const crossOrg = await request(ctx.server)
+        .patch(statusEndpoint(otherFixture.revenueFindingId))
+        .set(auth())
+        .send({ status: 'INVESTIGATING' });
+      expect(crossOrg.status).toBe(404);
+
+      const outsider = await registerUser(ctx.server, { email: uniqueEmail('findings-status') });
+      createdEmails.push(outsider.email);
+      const outsiderSession = await loginUser(ctx.server, outsider);
+      const outside = await request(ctx.server)
+        .patch(statusEndpoint(fixture.revenueFindingId))
+        .set(auth(outsiderSession.accessToken))
+        .send({ status: 'INVESTIGATING' });
+      expect(outside.status).toBe(404);
+    });
+
+    it('records a status change audit event', async () => {
+      const recordSpy = jest.spyOn(ctx.app.get(AuditService), 'record');
+      try {
+        const res = await request(ctx.server)
+          .patch(statusEndpoint(fixture.revenueFindingId))
+          .set(auth())
+          .send({ status: 'INVESTIGATING' });
+        expect(res.status).toBe(200);
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: AuditAction.FINDING_STATUS_CHANGED,
+            actorId: user.id,
+            organizationId,
+            entityType: 'Finding',
+            entityId: fixture.revenueFindingId,
+            metadata: { from: 'OPEN', to: 'INVESTIGATING' },
+          }),
+        );
+      } finally {
+        recordSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('finding notes', () => {
+    function notesEndpoint(findingId: string, noteId?: string): string {
+      const base = `${endpoint()}/${findingId}/notes`;
+      return noteId ? `${base}/${noteId}` : base;
+    }
+
+    it('creates a note and shows it in the detail view', async () => {
+      const res = await request(ctx.server)
+        .post(notesEndpoint(fixture.revenueFindingId))
+        .set(auth())
+        .send({ body: '  Check the pricing change too.  ' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data).toMatchObject({
+        body: 'Check the pricing change too.',
+        authorId: user.id,
+      });
+      expect(res.body.data.id).toBeDefined();
+
+      const detail = await request(ctx.server)
+        .get(`${endpoint()}/${fixture.revenueFindingId}`)
+        .set(auth());
+      expect(detail.body.data.notes).toHaveLength(2);
+      expect(detail.body.data.notes[1]).toMatchObject({
+        id: res.body.data.id,
+        body: 'Check the pricing change too.',
+      });
+    });
+
+    it('rejects empty, oversized and unknown body properties', async () => {
+      for (const body of [
+        {},
+        { body: '   ' },
+        { body: 123 },
+        { body: 'x'.repeat(2001) },
+        { body: 'looks fine', authorId: user.id },
+      ]) {
+        const res = await request(ctx.server)
+          .post(notesEndpoint(fixture.revenueFindingId))
+          .set(auth())
+          .send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('VALIDATION_FAILED');
+      }
+    });
+
+    it('lets only the author delete their note', async () => {
+      const other = await registerUser(ctx.server, { email: uniqueEmail('findings-note-author') });
+      createdEmails.push(other.email);
+      const otherSession = await loginUser(ctx.server, other);
+      await ctx.app.get(PrismaService).membership.create({
+        data: { userId: other.id, organizationId, role: 'MEMBER' },
+      });
+
+      const created = await request(ctx.server)
+        .post(notesEndpoint(fixture.revenueFindingId))
+        .set(auth(otherSession.accessToken))
+        .send({ body: 'From the second member.' });
+      expect(created.status).toBe(201);
+      const noteId = created.body.data.id as string;
+
+      // A different member of the same organization cannot delete it.
+      const denied = await request(ctx.server)
+        .delete(notesEndpoint(fixture.revenueFindingId, noteId))
+        .set(auth());
+      expect(denied.status).toBe(404);
+      expect(denied.body.error.code).toBe('NOT_FOUND');
+
+      const stillThere = await request(ctx.server)
+        .get(`${endpoint()}/${fixture.revenueFindingId}`)
+        .set(auth());
+      expect(stillThere.body.data.notes).toHaveLength(2);
+
+      // The author can.
+      const deleted = await request(ctx.server)
+        .delete(notesEndpoint(fixture.revenueFindingId, noteId))
+        .set(auth(otherSession.accessToken));
+      expect(deleted.status).toBe(204);
+      expect(deleted.body).toEqual({});
+
+      const after = await request(ctx.server)
+        .get(`${endpoint()}/${fixture.revenueFindingId}`)
+        .set(auth());
+      expect(after.body.data.notes).toHaveLength(1);
+      expect(after.body.data.notes[0].id).toBe(fixture.noteId);
+    });
+
+    it('returns 404 for missing notes, other findings and missing findings', async () => {
+      const missingNote = await request(ctx.server)
+        .delete(notesEndpoint(fixture.revenueFindingId, '00000000-0000-4000-8000-000000000000'))
+        .set(auth());
+      expect(missingNote.status).toBe(404);
+
+      // The revenue note does not belong to the order-count finding.
+      const wrongFinding = await request(ctx.server)
+        .delete(notesEndpoint(fixture.orderCountFindingId, fixture.noteId))
+        .set(auth());
+      expect(wrongFinding.status).toBe(404);
+
+      const stillOwned = await request(ctx.server)
+        .get(`${endpoint()}/${fixture.revenueFindingId}`)
+        .set(auth());
+      expect(stillOwned.body.data.notes).toHaveLength(1);
+
+      const missingFinding = await request(ctx.server)
+        .post(notesEndpoint('00000000-0000-4000-8000-000000000000'))
+        .set(auth())
+        .send({ body: 'orphan note' });
+      expect(missingFinding.status).toBe(404);
+    });
+
+    it('returns 404 for notes on another organization’s finding', async () => {
+      const otherOrg = await request(ctx.server)
+        .post('/api/v1/organizations')
+        .set(auth())
+        .send({ name: 'Other Notes Co' });
+      expect(otherOrg.status).toBe(201);
+      createdOrganizationIds.push(otherOrg.body.data.id);
+      const otherFixture = await seedFindings(otherOrg.body.data.id);
+
+      const create = await request(ctx.server)
+        .post(notesEndpoint(otherFixture.revenueFindingId))
+        .set(auth())
+        .send({ body: 'should not be allowed' });
+      expect(create.status).toBe(404);
+
+      const remove = await request(ctx.server)
+        .delete(notesEndpoint(otherFixture.revenueFindingId, otherFixture.noteId))
+        .set(auth());
+      expect(remove.status).toBe(404);
     });
   });
 });
