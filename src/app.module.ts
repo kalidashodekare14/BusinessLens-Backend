@@ -12,6 +12,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { FindingsModule } from './modules/findings/findings.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { HealthModule } from './modules/health/health.module';
     MetricsModule,
     AnalysisModule,
     FindingsModule,
+    DashboardModule,
     HealthModule,
   ],
 })

@@ -89,48 +89,57 @@ export class AnalysisProcessor implements QueueProcessor {
 
     let findingIds: string[];
     try {
-      const outcome = await this.tenantPrisma.run(organizationId, async (tx) => {
-        const metrics = await this.metrics.computeWithinTransaction(tx, organizationId);
-        if (!metrics) {
-          return null;
-        }
+      const outcome = await this.tenantPrisma.run(
+        organizationId,
+        async (tx) => {
+          const metrics = await this.metrics.computeWithinTransaction(tx, organizationId);
+          if (!metrics) {
+            return null;
+          }
 
-        const drafts = runRules(metrics);
-        const ids: string[] = [];
-        for (const draft of drafts) {
-          const finding = await tx.finding.create({
+          const drafts = runRules(metrics);
+          const ids: string[] = [];
+          for (const draft of drafts) {
+            const finding = await tx.finding.create({
+              data: {
+                organizationId,
+                analysisRunId: runId,
+                type: draft.type,
+                severity: draft.severity,
+                title: draft.title,
+                subjectKey: draft.subjectKey,
+                evidence: draft.evidence as unknown as Prisma.InputJsonValue,
+                ruleVersion: draft.ruleVersion,
+              },
+              select: { id: true },
+            });
+            ids.push(finding.id);
+          }
+
+          await tx.analysisRun.update({
+            where: { id: runId },
             data: {
-              organizationId,
-              analysisRunId: runId,
-              type: draft.type,
-              severity: draft.severity,
-              title: draft.title,
-              subjectKey: draft.subjectKey,
-              evidence: draft.evidence as unknown as Prisma.InputJsonValue,
-              ruleVersion: draft.ruleVersion,
+              status: 'COMPLETED',
+              referenceDate: metrics.referenceDate,
+              currentStart: metrics.current.start,
+              currentEnd: metrics.current.end,
+              previousStart: metrics.previous.start,
+              previousEnd: metrics.previous.end,
+              metricsSnapshot: serializeMetricsSnapshot(
+                metrics,
+              ) as unknown as Prisma.InputJsonValue,
+              errorMessage: null,
+              completedAt: new Date(),
             },
-            select: { id: true },
           });
-          ids.push(finding.id);
-        }
 
-        await tx.analysisRun.update({
-          where: { id: runId },
-          data: {
-            status: 'COMPLETED',
-            referenceDate: metrics.referenceDate,
-            currentStart: metrics.current.start,
-            currentEnd: metrics.current.end,
-            previousStart: metrics.previous.start,
-            previousEnd: metrics.previous.end,
-            metricsSnapshot: serializeMetricsSnapshot(metrics) as unknown as Prisma.InputJsonValue,
-            errorMessage: null,
-            completedAt: new Date(),
-          },
-        });
-
-        return ids;
-      });
+          return ids;
+        },
+        // Metrics aggregates over months of rows and the finding writes must be
+        // one atomic transaction (no partial findings), so this legitimately
+        // takes longer than Prisma's 5s default on a busy machine.
+        { timeoutMs: 30_000 },
+      );
 
       if (outcome === null) {
         await this.markFailed(organizationId, runId, 'No orders available to analyze.');

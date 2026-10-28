@@ -79,13 +79,15 @@ Rules for this file:
 
 ## Phase 5 — Findings workflow and AI (Day 5)
 
-- [ ] **T5.1** `PATCH /findings/:findingId/status` with allowed transitions (§11), `resolvedAt` handling, 409 on invalid transition, audit event.
-- [ ] **T5.2** `POST /findings/:findingId/notes` and `DELETE .../notes/:noteId` (author only).
-- [ ] **T5.3** Gemini client behind an `AiClient` interface: timeout, retry with exponential backoff, error mapping, no key logging. Fake client for tests. Check the current Google GenAI SDK package and model name before coding.
-- [ ] **T5.4** Prompt builder and `zod` output schema (§10). Request structured JSON output. Unit-test the prompt contains only evidence fields.
+- [x] **T5.1** `PATCH /findings/:findingId/status` with allowed transitions (§11), `resolvedAt` handling, 409 on invalid transition, audit event.
+- [x] **T5.2** `POST /findings/:findingId/notes` and `DELETE .../notes/:noteId` (author only).
+- [x] **T5.3** Gemini client behind an `AiClient` interface: timeout, retry with exponential backoff, error mapping, no key logging. Fake client for tests. Check the current Google GenAI SDK package and model name before coding.
+  *Done when:* package `@google/genai` (v2.31.0) verified against Google's current docs; structured output via `responseJsonSchema`; unit tests drive retry/timeout/redaction with an injected call stub.
+- [x] **T5.4** Prompt builder and `zod` output schema (§10). Request structured JSON output. Unit-test the prompt contains only evidence fields.
 - [ ] **T5.5** 🔒 Number validator (§10): extract numbers (percent, currency, plain, with thousands separators) from every generated text field and match them against evidence values with rounding tolerance. Tests must include: invented number, number from another finding, rounded number, percent vs ratio, number inside a word, negative numbers.
-- [ ] **T5.6** `ai-explanation` processor with `AiExplanation` lifecycle (`PENDING` → `GENERATING` → `COMPLETED`/`FAILED`), validation, one retry on validation failure, up to 3 attempts on transient errors. `POST /findings/:findingId/explanation` to regenerate. Finding detail must still work when the explanation is `FAILED`.
-- [ ] **T5.7** `GET /dashboard`: counts of open findings by severity, latest analysis run, key metrics from the latest run.
+  *Implemented and passing (unit + e2e); awaiting owner review per the 🔒 rule.*
+- [x] **T5.6** `ai-explanation` processor with `AiExplanation` lifecycle (`PENDING` → `GENERATING` → `COMPLETED`/`FAILED`), validation, one retry on validation failure, up to 3 attempts on transient errors. `POST /findings/:findingId/explanation` to regenerate. Finding detail must still work when the explanation is `FAILED`.
+- [x] **T5.7** `GET /dashboard`: counts of open findings by severity, latest analysis run, key metrics from the latest run.
 
 ## Phase 6 — Hardening, demo and contract freeze (Day 6)
 
