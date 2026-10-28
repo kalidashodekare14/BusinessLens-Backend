@@ -35,6 +35,14 @@ export async function readCsvHeader(buffer: Buffer): Promise<string[]> {
   return [];
 }
 
+/** Reads the headers persisted on an ImportJob, rejecting malformed metadata. */
+export function readStoredHeaders(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  return value.every((header) => typeof header === 'string') ? value : null;
+}
+
 export function normalizeDetectedHeaders(raw: readonly string[]): string[] {
   if (raw.length === 0) {
     throw new CsvValidationError('The file has no header row.');

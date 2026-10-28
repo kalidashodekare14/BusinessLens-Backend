@@ -1,9 +1,9 @@
 import { createReadStream } from 'node:fs';
 import { parse } from 'csv-parse';
 import type { ImportType } from '../../../generated/prisma/client';
-import { schemaFor } from './canonical-fields';
 import { CsvValidationError } from './csv-error';
 import type { CanonicalMapping } from './mapping';
+import { createRowMapper } from './row-mapper';
 import { validateOrderRow, validateProductRow, type RowIssue } from './row-validator';
 
 export const PREVIEW_ROW_LIMIT = 20;
@@ -49,9 +49,7 @@ export async function readCsvPreview(
   );
   source.on('error', (error) => parser.destroy(error));
 
-  const schema = schemaFor(type);
-  const headerIndexes = new Map<string, number>();
-  detectedHeaders.forEach((header, index) => headerIndexes.set(header, index));
+  const mapRow = createRowMapper(type, detectedHeaders, mapping);
 
   const rows: CsvPreviewRow[] = [];
   let headerSeen = false;
@@ -74,19 +72,7 @@ export async function readCsvPreview(
         break;
       }
 
-      const values: Record<string, string | null> = {};
-      for (const field of schema.fields) {
-        const header = mapping[field.key];
-        if (!header) {
-          values[field.key] = null;
-          continue;
-        }
-
-        const index = headerIndexes.get(header);
-        const cell = index === undefined ? undefined : cells[index];
-        values[field.key] = typeof cell === 'string' ? cell : null;
-      }
-
+      const values = mapRow(cells);
       const result = type === 'ORDERS' ? validateOrderRow(values) : validateProductRow(values);
       rows.push({
         rowNumber: rows.length + 1,

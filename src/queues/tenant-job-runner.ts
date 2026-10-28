@@ -26,8 +26,16 @@ export class TenantJobRunner {
   constructor(private readonly tenantPrisma: TenantPrismaService) {}
 
   async run<T>(payload: unknown, handler: TenantJobHandler<T>): Promise<T> {
-    const organizationId = this.readOrganizationId(payload);
-    return this.tenantPrisma.run(organizationId, handler);
+    return this.tenantPrisma.run(this.resolveOrganizationId(payload), handler);
+  }
+
+  /**
+   * Validates the payload and returns its organization. Processors that need
+   * several short tenant transactions (batch checkpoints) use this instead of
+   * holding one transaction open for the whole job.
+   */
+  resolveOrganizationId(payload: unknown): string {
+    return this.readOrganizationId(payload);
   }
 
   private readOrganizationId(payload: unknown): string {

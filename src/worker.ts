@@ -5,8 +5,7 @@ import { WorkerModule } from './worker.module';
 
 /**
  * Worker entry point: no HTTP server, no request pipeline. BullMQ workers keep
- * the process alive while consuming. Until T3.5 registers the import processor
- * the process logs a warning and idles on its queue connections.
+ * the process alive while consuming the registered processors.
  */
 async function bootstrap(): Promise<void> {
   try {
