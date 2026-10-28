@@ -2,30 +2,31 @@ import { Logger } from '@nestjs/common';
 import { AuditAction } from '../../../src/modules/audit/audit.actions';
 import { AuditService } from '../../../src/modules/audit/audit.service';
 import type { PrismaService } from '../../../src/prisma/prisma.service';
+import type { TenantPrismaService } from '../../../src/prisma/tenant-prisma.service';
 
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('AuditService', () => {
-  let createMany: jest.Mock;
-  let setConfig: jest.Mock;
-  let transaction: jest.Mock;
+  let prismaCreateMany: jest.Mock;
+  let txCreateMany: jest.Mock;
+  let run: jest.Mock;
   let service: AuditService;
 
   beforeEach(() => {
-    createMany = jest.fn().mockResolvedValue({ count: 1 });
-    setConfig = jest.fn().mockResolvedValue([{ set_config: 'org-1' }]);
-    transaction = jest.fn(async (callback: (tx: unknown) => Promise<void>) =>
-      callback({ $queryRaw: setConfig, auditLog: { createMany } }),
+    prismaCreateMany = jest.fn().mockResolvedValue({ count: 1 });
+    txCreateMany = jest.fn().mockResolvedValue({ count: 1 });
+    run = jest.fn(async (_organizationId: string, callback: (tx: unknown) => Promise<void>) =>
+      callback({ auditLog: { createMany: txCreateMany } }),
     );
-    service = new AuditService({
-      auditLog: { createMany },
-      $transaction: transaction,
-    } as unknown as PrismaService);
+    service = new AuditService(
+      { auditLog: { createMany: prismaCreateMany } } as unknown as PrismaService,
+      { run } as unknown as TenantPrismaService,
+    );
   });
 
-  it('sets the tenant context for organization-scoped events', async () => {
+  it('writes organization-scoped events through the tenant transaction', async () => {
     service.record({
       action: AuditAction.ORGANIZATION_UPDATED,
       actorId: 'user-1',
@@ -36,9 +37,9 @@ describe('AuditService', () => {
 
     await flush();
 
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(setConfig).toHaveBeenCalledWith(expect.any(Array), 'org-1');
-    expect(createMany).toHaveBeenCalledWith({
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith('org-1', expect.any(Function));
+    expect(txCreateMany).toHaveBeenCalledWith({
       data: [
         {
           action: 'organization.updated',
@@ -49,6 +50,7 @@ describe('AuditService', () => {
         },
       ],
     });
+    expect(prismaCreateMany).not.toHaveBeenCalled();
   });
 
   it('writes null-organization events without a tenant transaction', async () => {
@@ -59,8 +61,9 @@ describe('AuditService', () => {
 
     await flush();
 
-    expect(transaction).not.toHaveBeenCalled();
-    expect(createMany).toHaveBeenCalledWith({
+    expect(run).not.toHaveBeenCalled();
+    expect(txCreateMany).not.toHaveBeenCalled();
+    expect(prismaCreateMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
           action: 'auth.login_failed',
@@ -72,7 +75,7 @@ describe('AuditService', () => {
   });
 
   it('never throws or rejects when the write fails', async () => {
-    createMany.mockRejectedValue(new Error('permission denied'));
+    txCreateMany.mockRejectedValue(new Error('permission denied'));
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
     try {
@@ -80,6 +83,7 @@ describe('AuditService', () => {
         service.record({
           action: AuditAction.AUTH_REGISTER,
           actorId: 'user-1',
+          organizationId: 'org-1',
         }),
       ).not.toThrow();
 

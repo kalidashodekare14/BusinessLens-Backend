@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TenantPrismaService } from '../../prisma/tenant-prisma.service';
 import type { AuditAction } from './audit.actions';
 
 export interface AuditEvent {
@@ -20,7 +21,10 @@ export interface AuditEvent {
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantPrisma: TenantPrismaService,
+  ) {}
 
   /** Fire-and-forget by design; callers must not await it. */
   record(event: AuditEvent): void {
@@ -30,15 +34,14 @@ export class AuditService {
   private async write(event: AuditEvent): Promise<void> {
     try {
       if (event.organizationId) {
-        // Organization lifecycle events happen before a tenant request context
-        // exists. Set it for this transaction so AuditLog's RLS WITH CHECK accepts
-        // the row; T2.2 replaces this with TenantPrismaService.run.
-        await this.prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT set_config('app.organization_id', ${event.organizationId}, true)`;
+        // AuditLog is a tenant table. Organization lifecycle events happen outside
+        // a tenant request, so this sets the context itself.
+        await this.tenantPrisma.run(event.organizationId, async (tx) => {
           await tx.auditLog.createMany({ data: [this.toRow(event)] });
         });
       } else {
-        // Null-organization auth events are inserted without a tenant context.
+        // The RLS insert policy accepts null-organization auth events, which are
+        // written before an organization context exists and never read by tenants.
         await this.prisma.auditLog.createMany({ data: [this.toRow(event)] });
       }
     } catch {
