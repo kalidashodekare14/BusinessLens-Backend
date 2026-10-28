@@ -4,6 +4,7 @@ import { parseConfig } from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
 import { SecurityModule } from './common/security/security.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { HealthModule } from './modules/health/health.module';
     PrismaModule,
     SecurityModule,
     AuthModule,
+    UsersModule,
     HealthModule,
   ],
 })

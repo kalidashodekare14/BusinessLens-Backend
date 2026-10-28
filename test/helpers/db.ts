@@ -26,3 +26,19 @@ export async function deleteUsersByEmail(app: INestApplication, emails: string[]
     prisma.user.deleteMany({ where: { id: { in: ids } } }),
   ]);
 }
+
+/** Removes organizations created directly by tests (Membership first: FK RESTRICT). */
+export async function deleteOrganizationsById(
+  app: INestApplication,
+  organizationIds: string[],
+): Promise<void> {
+  if (organizationIds.length === 0) {
+    return;
+  }
+
+  const prisma = app.get(PrismaService);
+  await prisma.$transaction([
+    prisma.membership.deleteMany({ where: { organizationId: { in: organizationIds } } }),
+    prisma.organization.deleteMany({ where: { id: { in: organizationIds } } }),
+  ]);
+}
