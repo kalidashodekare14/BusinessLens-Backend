@@ -50,9 +50,10 @@ export class OrganizationsController {
   @Roles('OWNER')
   async update(
     @CurrentOrg() organization: CurrentOrganization,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateOrganizationDto,
   ): Promise<OrganizationView> {
-    const updated = await this.organizations.update(organization.id, dto);
+    const updated = await this.organizations.update(organization.id, dto, user.userId);
     return { ...updated, role: organization.role };
   }
 }

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { apiError } from '../../common/errors/api-error';
+import { AuditAction } from '../audit/audit.actions';
+import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../users/password.service';
 import { UsersService, type PublicUser } from '../users/users.service';
 import type { LoginDto } from './dto/login.dto';
@@ -29,10 +31,18 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly jwt: JwtService,
     private readonly refreshTokens: RefreshTokenService,
+    private readonly audit: AuditService,
   ) {}
 
-  register(dto: RegisterDto): Promise<PublicUser> {
-    return this.users.create(dto);
+  async register(dto: RegisterDto): Promise<PublicUser> {
+    const user = await this.users.create(dto);
+    this.audit.record({
+      action: AuditAction.AUTH_REGISTER,
+      actorId: user.id,
+      entityType: 'User',
+      entityId: user.id,
+    });
+    return user;
   }
 
   async login(dto: LoginDto): Promise<LoginResult> {
@@ -41,12 +51,25 @@ export class AuthService {
 
     // Same response for unknown email and wrong password (§6.4).
     if (!user || !passwordMatches) {
+      this.audit.record({
+        action: AuditAction.AUTH_LOGIN_FAILED,
+        actorId: user?.id ?? null,
+        entityType: 'User',
+        entityId: user?.id ?? null,
+      });
       throw apiError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
     }
 
     // Claims: sub only. The organization is never in the token (§6.4).
     const accessToken = await this.jwt.signAsync({ sub: user.id });
     const refreshToken = await this.refreshTokens.issue(user.id);
+
+    this.audit.record({
+      action: AuditAction.AUTH_LOGIN,
+      actorId: user.id,
+      entityType: 'User',
+      entityId: user.id,
+    });
 
     return { accessToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, refreshToken };
   }
@@ -71,8 +94,18 @@ export class AuthService {
   }
 
   async logout(rawToken: string | undefined): Promise<void> {
-    if (rawToken) {
-      await this.refreshTokens.revoke(rawToken);
+    if (!rawToken) {
+      return;
+    }
+
+    const userId = await this.refreshTokens.revoke(rawToken);
+    if (userId) {
+      this.audit.record({
+        action: AuditAction.AUTH_LOGOUT,
+        actorId: userId,
+        entityType: 'User',
+        entityId: userId,
+      });
     }
   }
 
