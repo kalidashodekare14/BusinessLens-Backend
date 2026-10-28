@@ -1,18 +1,21 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { FindingStatus, FindingType, Severity } from '../../../generated/prisma/client';
 
 export class ListFindingsQueryDto {
   @IsOptional()
+  @IsEnum(FindingStatus)
   @ApiPropertyOptional({ enum: Object.values(FindingStatus), example: 'OPEN' })
   status?: FindingStatus;
 
   @IsOptional()
+  @IsEnum(Severity)
   @ApiPropertyOptional({ enum: Object.values(Severity), example: 'HIGH' })
   severity?: Severity;
 
   @IsOptional()
+  @IsEnum(FindingType)
   @ApiPropertyOptional({ enum: Object.values(FindingType), example: 'REVENUE_DROP' })
   type?: FindingType;
 
