@@ -7,7 +7,11 @@ import { ESLint } from 'eslint';
  */
 describe('tenant module PrismaService convention', () => {
   const projectRoot = process.cwd();
-  const tenantModuleFile = path.join(projectRoot, 'src/modules/catalog/products.service.ts');
+  const tenantModuleFiles = [
+    path.join(projectRoot, 'src/modules/catalog/products.service.ts'),
+    // New in T6.2: the demo loader is a tenant module like any other.
+    path.join(projectRoot, 'src/modules/demo/demo.service.ts'),
+  ];
   const nonTenantModuleFile = path.join(projectRoot, 'src/modules/auth/auth.service.ts');
 
   const eslint = new ESLint({
@@ -23,12 +27,16 @@ describe('tenant module PrismaService convention', () => {
     return result.messages.filter((message) => message.ruleId === 'no-restricted-imports');
   }
 
-  it.each(['../../prisma/prisma.service', '../../../prisma/prisma.service'])(
-    'rejects a direct PrismaService import (%s) in a tenant module',
-    async (specifier) => {
+  it.each(
+    [['../../prisma/prisma.service'], ['../../../prisma/prisma.service']].flatMap(([specifier]) =>
+      tenantModuleFiles.map((file) => [specifier, file] as const),
+    ),
+  )(
+    'rejects a direct PrismaService import (%s) in a tenant module (%s)',
+    async (specifier, filePath) => {
       const messages = await restrictedImportMessages(
         `import { PrismaService } from '${specifier}';\n`,
-        tenantModuleFile,
+        filePath,
       );
 
       expect(messages).toHaveLength(1);
@@ -36,14 +44,17 @@ describe('tenant module PrismaService convention', () => {
     },
   );
 
-  it('allows TenantPrismaService in a tenant module', async () => {
-    const messages = await restrictedImportMessages(
-      "import { TenantPrismaService } from '../../prisma/tenant-prisma.service';\n",
-      tenantModuleFile,
-    );
+  it.each(tenantModuleFiles)(
+    'allows TenantPrismaService in a tenant module (%s)',
+    async (filePath) => {
+      const messages = await restrictedImportMessages(
+        "import { TenantPrismaService } from '../../prisma/tenant-prisma.service';\n",
+        filePath,
+      );
 
-    expect(messages).toEqual([]);
-  });
+      expect(messages).toEqual([]);
+    },
+  );
 
   it('keeps PrismaService available to the non-tenant modules', async () => {
     const messages = await restrictedImportMessages(
