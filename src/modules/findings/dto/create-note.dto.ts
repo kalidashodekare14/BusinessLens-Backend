@@ -8,7 +8,11 @@ function trimValue({ value }: TransformFnParams): unknown {
 
 export class CreateNoteDto {
   /** Plain text, author-attributed (§11); trimmed before validation. */
-  @ApiPropertyOptional({ minLength: 1, maxLength: 2000, example: 'Checked the promotion calendar.' })
+  @ApiPropertyOptional({
+    minLength: 1,
+    maxLength: 2000,
+    example: 'Checked the promotion calendar.',
+  })
   @Transform(trimValue)
   @IsString()
   @MinLength(1)

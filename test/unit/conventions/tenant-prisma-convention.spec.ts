@@ -65,17 +65,14 @@ describe('tenant code PrismaService convention', () => {
     },
   );
 
-  it.each(protectedFiles)(
-    'allows TenantPrismaService in tenant code (%s)',
-    async (filePath) => {
-      const messages = await restrictedImportMessages(
-        "import { TenantPrismaService } from '../../prisma/tenant-prisma.service';\n",
-        filePath,
-      );
+  it.each(protectedFiles)('allows TenantPrismaService in tenant code (%s)', async (filePath) => {
+    const messages = await restrictedImportMessages(
+      "import { TenantPrismaService } from '../../prisma/tenant-prisma.service';\n",
+      filePath,
+    );
 
-      expect(messages).toEqual([]);
-    },
-  );
+    expect(messages).toEqual([]);
+  });
 
   it('keeps PrismaService available to the non-tenant modules', async () => {
     const messages = await restrictedImportMessages(

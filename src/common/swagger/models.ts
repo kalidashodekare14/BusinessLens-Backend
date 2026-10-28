@@ -509,7 +509,11 @@ export class FindingEvidenceDto {
   metric!: string;
 
   @ApiProperty({
-    example: { value: '26705.50', start: '2026-09-01T00:00:00.000Z', end: '2026-09-30T00:00:00.000Z' },
+    example: {
+      value: '26705.50',
+      start: '2026-09-01T00:00:00.000Z',
+      end: '2026-09-30T00:00:00.000Z',
+    },
   })
   current!: { value: string | number; start: string; end: string };
 

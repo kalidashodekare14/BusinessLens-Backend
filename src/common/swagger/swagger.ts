@@ -16,10 +16,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .setTitle('BusinessLens API')
     .setDescription(DESCRIPTION)
     .setVersion('1.0')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token',
-    )
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
     .addCookieAuth(
       'bl_refresh',
       { type: 'apiKey', in: 'cookie', name: 'bl_refresh' },

@@ -15,7 +15,11 @@ export class LoginDto {
   @MaxLength(254)
   email!: string;
 
-  @ApiProperty({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH, example: 'correct horse battery staple' })
+  @ApiProperty({
+    minLength: 1,
+    maxLength: PASSWORD_MAX_LENGTH,
+    example: 'correct horse battery staple',
+  })
   @IsString()
   @MinLength(1)
   @MaxLength(PASSWORD_MAX_LENGTH)

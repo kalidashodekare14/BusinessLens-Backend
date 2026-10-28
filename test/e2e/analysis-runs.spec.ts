@@ -302,9 +302,7 @@ describe('analysis runs (e2e)', () => {
       expect(list.body.data.map((run: { id: string }) => run.id)).toEqual([ownRun.id]);
       expect(list.body.meta).toEqual({ page: 1, pageSize: 20, total: 1 });
 
-      const otherList = await request(ctx.server)
-        .get(endpoint(otherOrg.body.data.id))
-        .set(auth());
+      const otherList = await request(ctx.server).get(endpoint(otherOrg.body.data.id)).set(auth());
       expect(otherList.body.data.map((run: { id: string }) => run.id)).toEqual([otherRun.id]);
 
       const outsider = await registerUser(ctx.server, { email: uniqueEmail('analysis-list-out') });

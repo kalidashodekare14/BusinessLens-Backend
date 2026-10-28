@@ -4,7 +4,6 @@ Backend for BusinessLens: CSV import, deterministic metrics, rule-based findings
 
 ## Stack
 
-
 - Node.js 22+ / NestJS / TypeScript (strict)
 - PostgreSQL 16 through Prisma (runtime role `app_user`, migrations as the owner role)
 - Redis 7 + BullMQ for imports, analysis and AI explanation jobs
@@ -50,13 +49,13 @@ docker compose up --build
 
 Compose starts:
 
-| Service | Purpose |
-| --- | --- |
-| `postgres` | PostgreSQL 16 (host `5434`) |
-| `redis` | Redis 7 (host `6381`) |
-| `migrate` | one-shot `prisma migrate deploy` using the owner role |
-| `api` | API on `http://localhost:3000` |
-| `worker` | BullMQ processors (imports, analysis, AI) |
+| Service    | Purpose                                               |
+| ---------- | ----------------------------------------------------- |
+| `postgres` | PostgreSQL 16 (host `5434`)                           |
+| `redis`    | Redis 7 (host `6381`)                                 |
+| `migrate`  | one-shot `prisma migrate deploy` using the owner role |
+| `api`      | API on `http://localhost:3000`                        |
+| `worker`   | BullMQ processors (imports, analysis, AI)             |
 
 `api` and `worker` use the same runtime image; only the command differs. The `uploads` volume is shared because the API writes CSV files and the worker reads them. The `migrate` service uses the `build` image target because it needs the Prisma CLI.
 
@@ -72,39 +71,39 @@ Stop the stack with `docker compose down` (add `-v` to delete local data volumes
 
 All application variables are validated at startup; the process refuses to boot with a clear `CONFIG_INVALID` message if any is missing or malformed.
 
-| Variable | Meaning |
-| --- | --- |
-| `NODE_ENV` | `development`, `production` or `test` |
-| `PORT` | API port (default `3000`) |
-| `DATABASE_URL` | runtime connection as `app_user` (no superuser, no `BYPASSRLS`) |
-| `DATABASE_MIGRATION_URL` | owner connection used by `prisma migrate`; must differ from `DATABASE_URL` |
-| `REDIS_URL` | Redis connection string |
-| `JWT_ACCESS_SECRET` | 32+ character secret for 15-minute access tokens |
-| `CORS_ORIGIN` | comma-separated frontend origins, scheme + host only |
-| `COOKIE_SECURE` | `true` in production; required when `COOKIE_SAMESITE=none` |
-| `COOKIE_SAMESITE` | `lax`, `strict` or `none` |
-| `UPLOAD_DIR` | temporary CSV upload directory (default `./uploads`) |
-| `GEMINI_API_KEY` | server-only Gemini key |
-| `GEMINI_MODEL` | model name, for example `gemini-2.5-flash` |
-| `AI_ENABLED` | `true` to generate explanations; findings and evidence still work when `false` |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | only used by `docker-compose.yml` for the local Postgres container |
+| Variable                                              | Meaning                                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `NODE_ENV`                                            | `development`, `production` or `test`                                          |
+| `PORT`                                                | API port (default `3000`)                                                      |
+| `DATABASE_URL`                                        | runtime connection as `app_user` (no superuser, no `BYPASSRLS`)                |
+| `DATABASE_MIGRATION_URL`                              | owner connection used by `prisma migrate`; must differ from `DATABASE_URL`     |
+| `REDIS_URL`                                           | Redis connection string                                                        |
+| `JWT_ACCESS_SECRET`                                   | 32+ character secret for 15-minute access tokens                               |
+| `CORS_ORIGIN`                                         | comma-separated frontend origins, scheme + host only                           |
+| `COOKIE_SECURE`                                       | `true` in production; required when `COOKIE_SAMESITE=none`                     |
+| `COOKIE_SAMESITE`                                     | `lax`, `strict` or `none`                                                      |
+| `UPLOAD_DIR`                                          | temporary CSV upload directory (default `./uploads`)                           |
+| `GEMINI_API_KEY`                                      | server-only Gemini key                                                         |
+| `GEMINI_MODEL`                                        | model name, for example `gemini-2.5-flash`                                     |
+| `AI_ENABLED`                                          | `true` to generate explanations; findings and evidence still work when `false` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | only used by `docker-compose.yml` for the local Postgres container             |
 
 `.env` is git-ignored; `.env.example` contains placeholders only. Never commit real keys or customer data.
 
 ## Scripts
 
-| Command | Description |
-| --- | --- |
-| `npm run start:api` | build and start the HTTP API |
-| `npm run start:worker` | build and start the BullMQ worker |
-| `npm run build` | `prisma generate` + TypeScript build |
-| `npm run lint` | ESLint + Prettier check |
-| `npm test` | unit tests |
-| `npm run test:e2e` | integration, isolation and e2e tests (needs Postgres + Redis) |
-| `npm run seed` | load the demo organization through the real import pipeline |
-| `npm run generate:sample-data` | regenerate deterministic `sample-data/*.csv` |
-| `npx prisma migrate dev` | create/apply a migration in development |
-| `npx prisma migrate deploy` | apply committed migrations |
+| Command                        | Description                                                   |
+| ------------------------------ | ------------------------------------------------------------- |
+| `npm run start:api`            | build and start the HTTP API                                  |
+| `npm run start:worker`         | build and start the BullMQ worker                             |
+| `npm run build`                | `prisma generate` + TypeScript build                          |
+| `npm run lint`                 | ESLint + Prettier check                                       |
+| `npm test`                     | unit tests                                                    |
+| `npm run test:e2e`             | integration, isolation and e2e tests (needs Postgres + Redis) |
+| `npm run seed`                 | load the demo organization through the real import pipeline   |
+| `npm run generate:sample-data` | regenerate deterministic `sample-data/*.csv`                  |
+| `npx prisma migrate dev`       | create/apply a migration in development                       |
+| `npx prisma migrate deploy`    | apply committed migrations                                    |
 
 ## Demo data
 

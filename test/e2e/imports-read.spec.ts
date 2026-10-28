@@ -212,9 +212,7 @@ describe('import read endpoints (e2e)', () => {
       createdEmails.push(outsider.email);
       const outsiderSession = await loginUser(ctx.server, outsider);
 
-      const res = await request(ctx.server)
-        .get(endpoint())
-        .set(auth(outsiderSession.accessToken));
+      const res = await request(ctx.server).get(endpoint()).set(auth(outsiderSession.accessToken));
 
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('NOT_FOUND');
