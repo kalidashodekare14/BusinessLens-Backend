@@ -12,6 +12,7 @@ export const AuditAction = {
   ANALYSIS_STARTED: 'analysis.started',
   FINDING_STATUS_CHANGED: 'finding.status_changed',
   EXPLANATION_REGENERATED: 'explanation.regenerated',
+  DEMO_DATA_LOADED: 'demo.data_loaded',
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
