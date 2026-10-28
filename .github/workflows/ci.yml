@@ -64,7 +64,7 @@ jobs:
       UPLOAD_DIR: ./uploads
       GEMINI_API_KEY: placeholder-key
       GEMINI_MODEL: gemini-2.5-flash
-      AI_ENABLED: 'false'
+      AI_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
