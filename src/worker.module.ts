@@ -5,7 +5,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { AiProcessor } from './modules/ai/ai.processor';
 import { AnalysisProcessor } from './modules/analysis/analysis.processor';
 import { ImportProcessor } from './modules/imports/imports.processor';
-import { MetricsModule } from './modules/metrics/metrics.module';
+import { MetricsDataModule } from './modules/metrics/metrics-data.module';
 import { QueueModule } from './queues/queue.module';
 import { WorkerRuntimeService, QUEUE_PROCESSORS } from './queues/worker-runtime.service';
 
@@ -17,14 +17,16 @@ import { WorkerRuntimeService, QUEUE_PROCESSORS } from './queues/worker-runtime.
   imports: [
     ConfigModule.forRoot(createConfigModuleOptions()),
     QueueModule,
-    MetricsModule,
+    MetricsDataModule,
     AiModule,
   ],
   providers: [
     WorkerRuntimeService,
     ImportProcessor,
     AnalysisProcessor,
-    AiProcessor,
+    // AiProcessor comes from AiModule (which owns the AI_CLIENT binding);
+    // re-providing it here would create a second instance that cannot resolve
+    // AI_CLIENT and crashes the worker on boot.
     {
       provide: QUEUE_PROCESSORS,
       inject: [ImportProcessor, AnalysisProcessor, AiProcessor],
