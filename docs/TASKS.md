@@ -91,8 +91,8 @@ Rules for this file:
 
 ## Phase 6 — Hardening, demo and contract freeze (Day 6)
 
-- [ ] **T6.1** `GET /audit-logs` (OWNER only, paginated) and verify all §6.5 audit events exist.
-- [ ] **T6.2** `POST /demo-data` (OWNER only) and `prisma/seed.ts`: loads the sample dataset into the organization and runs the same import code path (no shortcuts that bypass validation).
+- [x] **T6.1** `GET /audit-logs` (OWNER only, paginated) and verify all §6.5 audit events exist.
+- [x] **T6.2** `POST /demo-data` (OWNER only) and `prisma/seed.ts`: loads the sample dataset into the organization and runs the same import code path (no shortcuts that bypass validation).
 - [ ] **T6.3** 🔒 Security review pass using this checklist and report results to the owner: every tenant endpoint has an isolation test; no bare `PrismaService` in tenant modules; no raw SQL outside `TenantPrismaService.run`; no secrets or tokens in logs; CORS limited; cookie flags correct; upload limits enforced; error responses leak nothing; `app_user` lacks BYPASSRLS (test asserts it).
 - [ ] **T6.4** `Dockerfile` (one image for API and worker), full `docker-compose.yml` (postgres, redis, api, worker), `README.md` (setup, env, run, test, seed, demo flow).
 - [ ] **T6.5** Swagger at `/api/docs` for all endpoints with DTO examples. Freeze the API contract and tag the repo `api-contract-v1`. After this point, endpoint changes need owner approval and a note for the frontend repo.
