@@ -29,22 +29,31 @@ export class AuditService {
 
   private async write(event: AuditEvent): Promise<void> {
     try {
-      // createMany (not create) so INSERT needs no SELECT privilege: AuditLog SELECT
-      // grants arrive with the RLS work in T2.1.
-      await this.prisma.auditLog.createMany({
-        data: [
-          {
-            action: event.action,
-            actorId: event.actorId ?? null,
-            organizationId: event.organizationId ?? null,
-            entityType: event.entityType ?? null,
-            entityId: event.entityId ?? null,
-            ...(event.metadata === undefined ? {} : { metadata: event.metadata }),
-          },
-        ],
-      });
+      if (event.organizationId) {
+        // Organization lifecycle events happen before a tenant request context
+        // exists. Set it for this transaction so AuditLog's RLS WITH CHECK accepts
+        // the row; T2.2 replaces this with TenantPrismaService.run.
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT set_config('app.organization_id', ${event.organizationId}, true)`;
+          await tx.auditLog.createMany({ data: [this.toRow(event)] });
+        });
+      } else {
+        // Null-organization auth events are inserted without a tenant context.
+        await this.prisma.auditLog.createMany({ data: [this.toRow(event)] });
+      }
     } catch {
       this.logger.warn(`Failed to write audit event ${event.action}`);
     }
+  }
+
+  private toRow(event: AuditEvent) {
+    return {
+      action: event.action,
+      actorId: event.actorId ?? null,
+      organizationId: event.organizationId ?? null,
+      entityType: event.entityType ?? null,
+      entityId: event.entityId ?? null,
+      ...(event.metadata === undefined ? {} : { metadata: event.metadata }),
+    };
   }
 }

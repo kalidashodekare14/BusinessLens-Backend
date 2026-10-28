@@ -9,16 +9,23 @@ function flush(): Promise<void> {
 
 describe('AuditService', () => {
   let createMany: jest.Mock;
+  let setConfig: jest.Mock;
+  let transaction: jest.Mock;
   let service: AuditService;
 
   beforeEach(() => {
     createMany = jest.fn().mockResolvedValue({ count: 1 });
+    setConfig = jest.fn().mockResolvedValue([{ set_config: 'org-1' }]);
+    transaction = jest.fn(async (callback: (tx: unknown) => Promise<void>) =>
+      callback({ $queryRaw: setConfig, auditLog: { createMany } }),
+    );
     service = new AuditService({
       auditLog: { createMany },
+      $transaction: transaction,
     } as unknown as PrismaService);
   });
 
-  it('writes the event without requiring the caller to await', async () => {
+  it('sets the tenant context for organization-scoped events', async () => {
     service.record({
       action: AuditAction.ORGANIZATION_UPDATED,
       actorId: 'user-1',
@@ -29,6 +36,8 @@ describe('AuditService', () => {
 
     await flush();
 
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(setConfig).toHaveBeenCalledWith(expect.any(Array), 'org-1');
     expect(createMany).toHaveBeenCalledWith({
       data: [
         {
@@ -42,7 +51,7 @@ describe('AuditService', () => {
     });
   });
 
-  it('passes safe metadata through', async () => {
+  it('writes null-organization events without a tenant transaction', async () => {
     service.record({
       action: AuditAction.AUTH_LOGIN_FAILED,
       metadata: { reason: 'invalid_credentials' },
@@ -50,6 +59,7 @@ describe('AuditService', () => {
 
     await flush();
 
+    expect(transaction).not.toHaveBeenCalled();
     expect(createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
