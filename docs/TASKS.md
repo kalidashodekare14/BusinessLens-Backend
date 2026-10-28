@@ -52,7 +52,7 @@ Rules for this file:
 - [x] **T3.1** BullMQ setup: `queue.module.ts`, `queue.constants.ts` (`import-processing`, `analysis`, `ai-explanation`), `worker.ts` and `worker.module.ts` bootstrapping processors.
 - [x] **T3.2** `POST /imports` (multipart): 5 MB limit, `.csv` only, temp file in `UPLOAD_DIR`, create `ImportJob`, read header row, return `detectedHeaders` and a suggested mapping (synonym table per §8). Audit event.
 - [x] **T3.3** Canonical field definitions for ORDERS and PRODUCTS (§8) and the row validator (types, required fields, positive quantity, non-negative price, parseable dates). Pure functions with thorough unit tests.
-- [ ] **T3.4** `PUT /imports/:importId/mapping`: validate required fields are mapped, save mapping, return a 20-row preview with per-row errors. Status `MAPPED`.
+- [x] **T3.4** `PUT /imports/:importId/mapping`: validate required fields are mapped, save mapping, return a 20-row preview with per-row errors. Status `MAPPED`.
 - [ ] **T3.5** `POST /imports/:importId/confirm` and the `process-import` processor for PRODUCTS (streaming parse, batches of 500, upsert by name, progress updates, capped error report).
 - [ ] **T3.6** ORDERS processing: group line items by order id, upsert orders by (`organizationId`, `externalId`), replace items on re-import, compute `lineTotal` and `total`, link or create products, keep excluded statuses stored. Handle an order whose rows span multiple batches correctly.
   *Tests:* re-import is idempotent; mixed good/bad rows; cancelled orders stored.
