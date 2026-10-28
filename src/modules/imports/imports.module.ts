@@ -9,5 +9,6 @@ import { UploadsCleanupService } from './uploads-cleanup.service';
   imports: [AuditDataModule, QueueModule],
   controllers: [ImportsController],
   providers: [ImportsService, UploadsCleanupService],
+  exports: [ImportsService],
 })
 export class ImportsModule {}

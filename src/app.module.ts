@@ -14,6 +14,7 @@ import { MetricsModule } from './modules/metrics/metrics.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { FindingsModule } from './modules/findings/findings.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DemoModule } from './modules/demo/demo.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -32,6 +33,7 @@ import { HealthModule } from './modules/health/health.module';
     AnalysisModule,
     FindingsModule,
     DashboardModule,
+    DemoModule,
     HealthModule,
   ],
 })
