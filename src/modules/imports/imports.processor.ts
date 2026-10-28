@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
-import { Injectable } from '@nestjs/common';
+import { unlink } from 'node:fs/promises';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import { isUUID } from 'class-validator';
@@ -22,6 +23,8 @@ import { resolveUploadPath } from './csv/storage-path';
 
 export const IMPORT_BATCH_SIZE = 500;
 export const IMPORT_ERROR_REPORT_LIMIT = 1000;
+/** A 500-row upsert batch exceeds Prisma's default 5s interactive timeout under load. */
+export const IMPORT_BATCH_TIMEOUT_MS = 30_000;
 
 interface ImportErrorEntry {
   rowNumber: number;
@@ -58,6 +61,19 @@ function headersMatch(actual: readonly string[], expected: readonly string[]): b
   );
 }
 
+/** Log only a code or error name: a parser message may contain CSV values. */
+function safeErrorCode(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+  ) {
+    return (error as { code: string }).code;
+  }
+  return error instanceof Error ? error.name : 'unknown';
+}
+
 function isFileReadError(error: unknown): boolean {
   if (error instanceof CsvError) {
     return true;
@@ -84,6 +100,7 @@ function isFileReadError(error: unknown): boolean {
 export class ImportProcessor implements QueueProcessor {
   readonly queue = QUEUE_NAMES.importProcessing;
   readonly jobName = JOB_NAMES.processImport;
+  private readonly logger = new Logger(ImportProcessor.name);
 
   constructor(
     private readonly tenantJobs: TenantJobRunner,
@@ -134,6 +151,7 @@ export class ImportProcessor implements QueueProcessor {
 
     if (!detectedHeaders || !mapping?.valid || !storagePath) {
       await this.markFailed(organizationId, importJobId);
+      await this.removeUpload(storagePath);
       return;
     }
 
@@ -156,11 +174,25 @@ export class ImportProcessor implements QueueProcessor {
               mapping.mapping,
             );
       await this.finish(organizationId, importJobId, outcome);
-    } catch {
+    } catch (error) {
+      this.logger.warn(`Import ${importJobId} failed (${safeErrorCode(error)}).`);
       await this.markFailed(organizationId, importJobId).catch(() => undefined);
       // Never surface a database or parser message: it may contain CSV values.
-      throw new Error('Import processing failed.');
+      throw new Error('Import processing failed.', { cause: error });
+    } finally {
+      // §8: the temp file is deleted when processing ends, success or failure.
+      // A duplicate delivery that returns above leaves the file alone, because a
+      // live run may still be reading it.
+      await this.removeUpload(storagePath);
     }
+  }
+
+  private async removeUpload(storagePath: string | null): Promise<void> {
+    if (!storagePath) {
+      return;
+    }
+    // Already deleted by another path (for example a test) is not an error.
+    await unlink(storagePath).catch(() => undefined);
   }
 
   private async processProducts(
@@ -193,31 +225,35 @@ export class ImportProcessor implements QueueProcessor {
     let rowsSinceFlush = 0;
 
     const flush = async (): Promise<void> => {
-      await this.tenantPrisma.run(organizationId, async (tx) => {
-        for (const product of pending) {
-          await tx.product.upsert({
-            where: {
-              organizationId_name: { organizationId, name: product.name },
-            },
-            create: {
-              organizationId,
-              name: product.name,
-              sku: product.sku,
-              price: product.price,
-            },
-            update: { sku: product.sku, price: product.price },
-          });
-        }
+      await this.tenantPrisma.run(
+        organizationId,
+        async (tx) => {
+          for (const product of pending) {
+            await tx.product.upsert({
+              where: {
+                organizationId_name: { organizationId, name: product.name },
+              },
+              create: {
+                organizationId,
+                name: product.name,
+                sku: product.sku,
+                price: product.price,
+              },
+              update: { sku: product.sku, price: product.price },
+            });
+          }
 
-        await tx.importJob.update({
-          where: { id: importJobId },
-          data: {
-            processedRows: outcome.totalRows,
-            failedRows: outcome.failedRows,
-            errorReport: this.errorReportJson(outcome.errorReport),
-          },
-        });
-      });
+          await tx.importJob.update({
+            where: { id: importJobId },
+            data: {
+              processedRows: outcome.totalRows,
+              failedRows: outcome.failedRows,
+              errorReport: this.errorReportJson(outcome.errorReport),
+            },
+          });
+        },
+        { timeoutMs: IMPORT_BATCH_TIMEOUT_MS },
+      );
 
       pending.length = 0;
       rowsSinceFlush = 0;
@@ -402,98 +438,102 @@ export class ImportProcessor implements QueueProcessor {
     outcome: ProcessingOutcome,
     processedRows: number,
   ): Promise<void> {
-    await this.tenantPrisma.run(organizationId, async (tx) => {
-      const names = new Set<string>();
-      const skuByName = new Map<string, string>();
-      for (const order of orders) {
-        for (const item of order.items) {
-          names.add(item.productName);
-          if (item.sku && !skuByName.has(item.productName)) {
-            skuByName.set(item.productName, item.sku);
+    await this.tenantPrisma.run(
+      organizationId,
+      async (tx) => {
+        const names = new Set<string>();
+        const skuByName = new Map<string, string>();
+        for (const order of orders) {
+          for (const item of order.items) {
+            names.add(item.productName);
+            if (item.sku && !skuByName.has(item.productName)) {
+              skuByName.set(item.productName, item.sku);
+            }
           }
         }
-      }
 
-      const productNames = [...names];
-      const idByName = new Map<string, string>();
-      const existing = await tx.product.findMany({
-        where: { organizationId, name: { in: productNames } },
-        select: { id: true, name: true },
-      });
-      for (const product of existing) {
-        idByName.set(product.name, product.id);
-      }
-
-      const missing = productNames.filter((name) => !idByName.has(name));
-      if (missing.length > 0) {
-        await tx.product.createMany({
-          data: missing.map((name) => ({
-            organizationId,
-            name,
-            sku: skuByName.get(name) ?? null,
-          })),
-          skipDuplicates: true,
-        });
-        const created = await tx.product.findMany({
-          where: { organizationId, name: { in: missing } },
+        const productNames = [...names];
+        const idByName = new Map<string, string>();
+        const existing = await tx.product.findMany({
+          where: { organizationId, name: { in: productNames } },
           select: { id: true, name: true },
         });
-        for (const product of created) {
+        for (const product of existing) {
           idByName.set(product.name, product.id);
         }
-      }
 
-      for (const order of orders) {
-        const items = order.items.map((item) => {
-          const productId = idByName.get(item.productName);
-          if (!productId) {
-            throw new Error('Product reference is unavailable.');
+        const missing = productNames.filter((name) => !idByName.has(name));
+        if (missing.length > 0) {
+          await tx.product.createMany({
+            data: missing.map((name) => ({
+              organizationId,
+              name,
+              sku: skuByName.get(name) ?? null,
+            })),
+            skipDuplicates: true,
+          });
+          const created = await tx.product.findMany({
+            where: { organizationId, name: { in: missing } },
+            select: { id: true, name: true },
+          });
+          for (const product of created) {
+            idByName.set(product.name, product.id);
           }
-          return {
-            organizationId,
-            productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            lineTotal: item.lineTotal,
-          };
-        });
+        }
 
-        await tx.order.upsert({
-          where: {
-            organizationId_externalId: {
+        for (const order of orders) {
+          const items = order.items.map((item) => {
+            const productId = idByName.get(item.productName);
+            if (!productId) {
+              throw new Error('Product reference is unavailable.');
+            }
+            return {
+              organizationId,
+              productId,
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.lineTotal,
+            };
+          });
+
+          await tx.order.upsert({
+            where: {
+              organizationId_externalId: {
+                organizationId,
+                externalId: order.externalId,
+              },
+            },
+            create: {
               organizationId,
               externalId: order.externalId,
+              orderedAt: order.orderedAt,
+              status: order.status,
+              total: order.total,
+              importJobId,
+              items: { create: items },
             },
-          },
-          create: {
-            organizationId,
-            externalId: order.externalId,
-            orderedAt: order.orderedAt,
-            status: order.status,
-            total: order.total,
-            importJobId,
-            items: { create: items },
-          },
-          update: {
-            orderedAt: order.orderedAt,
-            status: order.status,
-            total: order.total,
-            importJobId,
-            items: { deleteMany: {}, create: items },
+            update: {
+              orderedAt: order.orderedAt,
+              status: order.status,
+              total: order.total,
+              importJobId,
+              items: { deleteMany: {}, create: items },
+            },
+          });
+        }
+
+        await tx.importJob.update({
+          where: { id: importJobId },
+          data: {
+            processedRows,
+            failedRows: outcome.failedRows,
+            errorReport: this.errorReportJson(outcome.errorReport),
           },
         });
-      }
-
-      await tx.importJob.update({
-        where: { id: importJobId },
-        data: {
-          processedRows,
-          failedRows: outcome.failedRows,
-          errorReport: this.errorReportJson(outcome.errorReport),
-        },
-      });
-    });
+      },
+      { timeoutMs: IMPORT_BATCH_TIMEOUT_MS },
+    );
   }
 
   private addImportError(outcome: ProcessingOutcome, entry: ImportErrorEntry): void {

@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   Param,
   Post,
   Put,
+  Query,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,11 +24,15 @@ import type {
 import { MAX_CSV_BYTES } from './csv/csv-content';
 import { CreateImportDto } from './dto/create-import.dto';
 import { ImportIdParamDto } from './dto/import-id-param.dto';
+import { ListImportsQueryDto } from './dto/list-imports-query.dto';
 import { UpdateImportMappingDto } from './dto/update-import-mapping.dto';
 import {
   ImportsService,
   type ImportConfirmView,
+  type ImportDetailView,
+  type ImportErrorsPage,
   type ImportMappingView,
+  type ImportPage,
   type ImportUploadView,
 } from './imports.service';
 
@@ -53,6 +59,31 @@ export class ImportsController {
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<ImportUploadView> {
     return this.imports.upload(organization.id, user.userId, dto.type, file);
+  }
+
+  @Get()
+  list(
+    @CurrentOrg() organization: CurrentOrganization,
+    @Query() query: ListImportsQueryDto,
+  ): Promise<ImportPage> {
+    return this.imports.list(organization.id, query.page, query.pageSize);
+  }
+
+  @Get(':importId')
+  get(
+    @CurrentOrg() organization: CurrentOrganization,
+    @Param() params: ImportIdParamDto,
+  ): Promise<ImportDetailView> {
+    return this.imports.get(organization.id, params.importId);
+  }
+
+  @Get(':importId/errors')
+  errors(
+    @CurrentOrg() organization: CurrentOrganization,
+    @Param() params: ImportIdParamDto,
+    @Query() query: ListImportsQueryDto,
+  ): Promise<ImportErrorsPage> {
+    return this.imports.errors(organization.id, params.importId, query.page, query.pageSize);
   }
 
   @Put(':importId/mapping')

@@ -43,6 +43,51 @@ export interface ImportConfirmView {
   status: ImportStatus;
 }
 
+export interface ImportListItemView {
+  id: string;
+  type: ImportType;
+  status: ImportStatus;
+  originalFileName: string;
+  totalRows: number;
+  processedRows: number;
+  failedRows: number;
+  createdAt: Date;
+  completedAt: Date | null;
+}
+
+export interface ImportPage {
+  data: ImportListItemView[];
+  meta: { page: number; pageSize: number; total: number };
+}
+
+export interface ImportDetailView extends ImportListItemView {
+  detectedHeaders: string[] | null;
+  columnMapping: Record<string, string | null> | null;
+}
+
+export interface ImportErrorView {
+  rowNumber: number;
+  field: string;
+  reason: string;
+}
+
+export interface ImportErrorsPage {
+  data: ImportErrorView[];
+  meta: { page: number; pageSize: number; total: number };
+}
+
+const IMPORT_LIST_SELECT = {
+  id: true,
+  type: true,
+  status: true,
+  originalFileName: true,
+  totalRows: true,
+  processedRows: true,
+  failedRows: true,
+  createdAt: true,
+  completedAt: true,
+} as const;
+
 function hasErrnoCode(error: unknown, code: string): boolean {
   return (
     typeof error === 'object' &&
@@ -66,6 +111,43 @@ function sanitizeOriginalFileName(value: string): string {
     .join('')
     .trim();
   return (cleaned.length > 0 ? cleaned : 'upload.csv').slice(0, 255);
+}
+
+/** Stored JSON columns are untrusted after a migration or manual edit; keep only usable entries. */
+function readStoredMapping(value: unknown): Record<string, string | null> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const mapping: Record<string, string | null> = {};
+  for (const [key, mapped] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof mapped === 'string' || mapped === null) {
+      mapping[key] = mapped;
+    }
+  }
+  return mapping;
+}
+
+function readErrorReport(value: unknown): ImportErrorView[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const entries: ImportErrorView[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) {
+      continue;
+    }
+    const entry = item as Record<string, unknown>;
+    if (
+      typeof entry.rowNumber !== 'number' ||
+      !Number.isInteger(entry.rowNumber) ||
+      typeof entry.field !== 'string' ||
+      typeof entry.reason !== 'string'
+    ) {
+      continue;
+    }
+    entries.push({ rowNumber: entry.rowNumber, field: entry.field, reason: entry.reason });
+  }
+  return entries;
 }
 
 @Injectable()
@@ -294,6 +376,72 @@ export class ImportsService {
     });
 
     return job;
+  }
+
+  async list(organizationId: string, page: number, pageSize: number): Promise<ImportPage> {
+    const { jobs, total } = await this.tenantPrisma.run(organizationId, async (tx) => {
+      const [jobs, total] = await Promise.all([
+        tx.importJob.findMany({
+          where: { organizationId },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          select: IMPORT_LIST_SELECT,
+        }),
+        tx.importJob.count({ where: { organizationId } }),
+      ]);
+      return { jobs, total };
+    });
+
+    return { data: jobs, meta: { page, pageSize, total } };
+  }
+
+  async get(organizationId: string, importId: string): Promise<ImportDetailView> {
+    const job = await this.tenantPrisma.run(organizationId, (tx) =>
+      tx.importJob.findUnique({
+        where: { id: importId },
+        select: {
+          ...IMPORT_LIST_SELECT,
+          detectedHeaders: true,
+          columnMapping: true,
+        },
+      }),
+    );
+
+    if (!job) {
+      throw apiError(404, 'NOT_FOUND', 'Import not found.');
+    }
+
+    return {
+      ...job,
+      detectedHeaders: readStoredHeaders(job.detectedHeaders),
+      columnMapping: readStoredMapping(job.columnMapping),
+    };
+  }
+
+  async errors(
+    organizationId: string,
+    importId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<ImportErrorsPage> {
+    const job = await this.tenantPrisma.run(organizationId, (tx) =>
+      tx.importJob.findUnique({
+        where: { id: importId },
+        select: { errorReport: true },
+      }),
+    );
+
+    if (!job) {
+      throw apiError(404, 'NOT_FOUND', 'Import not found.');
+    }
+
+    const entries = readErrorReport(job.errorReport);
+    const start = (page - 1) * pageSize;
+    return {
+      data: entries.slice(start, start + pageSize),
+      meta: { page, pageSize, total: entries.length },
+    };
   }
 
   private async previewFile(

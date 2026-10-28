@@ -38,6 +38,18 @@ describe('TenantPrismaService', () => {
     ).rejects.toThrow('boom');
   });
 
+  it('forwards a bounded transaction timeout when one is requested', async () => {
+    await service.run('org-1', async () => 'ok', { timeoutMs: 30_000 });
+
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 30_000 });
+  });
+
+  it('leaves the Prisma defaults in place without explicit options', async () => {
+    await service.run('org-1', async () => 'ok');
+
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), undefined);
+  });
+
   it('runs the callback with the transaction client', async () => {
     const callback = jest.fn(async (tx: unknown) => tx);
 

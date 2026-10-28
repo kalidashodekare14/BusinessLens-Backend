@@ -17,6 +17,16 @@ import { PrismaService } from './prisma.service';
  * use non-tenant tables (audit also uses the dedicated null-organization path).
  * Worker jobs go through `TenantJobRunner` in src/queues/.
  */
+export interface TenantTransactionOptions {
+  /**
+   * Prisma interactive transactions default to 5 seconds. Bulk import batches
+   * legitimately take longer, so they ask for a bounded larger timeout instead
+   * of splitting work into smaller transactions (which §8 forbids at the
+   * 500-row batch size).
+   */
+  readonly timeoutMs?: number;
+}
+
 @Injectable()
 export class TenantPrismaService {
   constructor(private readonly prisma: PrismaService) {}
@@ -24,14 +34,18 @@ export class TenantPrismaService {
   async run<T>(
     organizationId: string,
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    options: TenantTransactionOptions = {},
   ): Promise<T> {
     if (!organizationId) {
       throw new Error('organizationId is required for tenant queries');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.organization_id', ${organizationId}, true)`;
-      return fn(tx);
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.organization_id', ${organizationId}, true)`;
+        return fn(tx);
+      },
+      options.timeoutMs === undefined ? undefined : { timeout: options.timeoutMs },
+    );
   }
 }
