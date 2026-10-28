@@ -17,7 +17,7 @@ Rules for this file:
   *Done when:* `npm run lint && npm run test && npm run build` pass on an empty app.
 - [x] **T0.2** `docker-compose.yml` with postgres 16 and redis 7 (volumes, healthchecks), `.env.example`, config module that validates all env vars from §15 at startup.
   *Done when:* app fails fast with a clear message on a missing or invalid variable.
-- [ ] **T0.3** Prisma setup: add `schema.prisma` from Appendix A, first migration, a migration that creates the `app_user` role with least privileges (no superuser, no BYPASSRLS), and two connection URLs (owner for migrations, `app_user` for runtime).
+- [x] **T0.3** Prisma setup: add `schema.prisma` from Appendix A, first migration, a migration that creates the `app_user` role with least privileges (no superuser, no BYPASSRLS), and two connection URLs (owner for migrations, `app_user` for runtime).
   *Done when:* `prisma migrate dev` works and the app connects as `app_user`.
 - [ ] **T0.4** App bootstrap: global prefix `/api/v1`, `ValidationPipe` (whitelist, forbidNonWhitelisted, transform), global exception filter producing the §12 error format, response-envelope interceptor, request-id logging, CORS from `CORS_ORIGIN` with credentials, `cookie-parser`. `GET /health` checks DB and Redis.
   *Done when:* an invalid body returns the standard 400 error format; health returns data envelope.

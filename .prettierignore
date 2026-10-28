@@ -4,6 +4,9 @@ coverage
 package-lock.json
 *.tsbuildinfo
 
+# Generated Prisma client (prisma generate)
+src/generated
+
 # Owner-authored docs are not agent-editable (AGENT.md §9) — never reformat them.
 AGENT.md
 docs/

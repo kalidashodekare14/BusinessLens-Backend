@@ -1,0 +1,239 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MembershipRole {
+  OWNER
+  MEMBER
+}
+
+enum ImportType {
+  ORDERS
+  PRODUCTS
+}
+
+enum ImportStatus {
+  UPLOADED
+  MAPPED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum AnalysisStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum FindingType {
+  REVENUE_DROP
+  ORDER_COUNT_DROP
+  PRODUCT_REVENUE_DROP
+}
+
+enum Severity {
+  MEDIUM
+  HIGH
+}
+
+enum FindingStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+}
+
+enum AiStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  memberships   Membership[]
+  refreshTokens RefreshToken[]
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  currency    String   @default("USD")
+  timezone    String   @default("UTC")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  memberships Membership[]
+}
+
+model Membership {
+  id             String   @id @default(uuid())
+  userId         String
+  organizationId String
+  role           MembershipRole @default(OWNER)
+  createdAt      DateTime @default(now())
+  user           User         @relation(fields: [userId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id])
+  @@index([userId])
+}
+
+model ImportJob {
+  id               String   @id @default(uuid())
+  organizationId   String
+  createdById      String
+  type             ImportType
+  status           ImportStatus @default(UPLOADED)
+  originalFileName String
+  storagePath      String
+  detectedHeaders  Json?
+  columnMapping    Json?
+  totalRows        Int      @default(0)
+  processedRows    Int      @default(0)
+  failedRows       Int      @default(0)
+  errorReport      Json?
+  createdAt        DateTime @default(now())
+  completedAt      DateTime?
+  @@index([organizationId, createdAt])
+}
+
+model Product {
+  id             String   @id @default(uuid())
+  organizationId String
+  sku            String?
+  name           String
+  price          Decimal? @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  items          OrderItem[]
+  @@unique([organizationId, name])
+}
+
+model Order {
+  id             String   @id @default(uuid())
+  organizationId String
+  externalId     String
+  orderedAt      DateTime
+  status         String   @default("completed")
+  total          Decimal  @db.Decimal(12, 2)
+  importJobId    String?
+  items          OrderItem[]
+  @@unique([organizationId, externalId])
+  @@index([organizationId, orderedAt])
+}
+
+model OrderItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  orderId        String
+  productId      String?
+  productName    String
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(12, 2)
+  lineTotal      Decimal  @db.Decimal(12, 2)
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product? @relation(fields: [productId], references: [id])
+  @@index([organizationId, productId])
+  @@index([orderId])
+}
+
+model AnalysisRun {
+  id              String   @id @default(uuid())
+  organizationId  String
+  triggeredById   String
+  status          AnalysisStatus @default(QUEUED)
+  referenceDate   DateTime?
+  currentStart    DateTime?
+  currentEnd      DateTime?
+  previousStart   DateTime?
+  previousEnd     DateTime?
+  metricsSnapshot Json?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+  findings        Finding[]
+  @@index([organizationId, createdAt])
+}
+
+model Finding {
+  id             String   @id @default(uuid())
+  organizationId String
+  analysisRunId  String
+  type           FindingType
+  severity       Severity
+  status         FindingStatus @default(OPEN)
+  title          String
+  subjectKey     String?
+  evidence       Json
+  ruleVersion    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  resolvedAt     DateTime?
+  analysisRun    AnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  notes          FindingNote[]
+  explanation    AiExplanation?
+  @@index([organizationId, status])
+  @@index([analysisRunId])
+}
+
+model FindingNote {
+  id             String   @id @default(uuid())
+  organizationId String
+  findingId      String
+  authorId       String
+  body           String
+  createdAt      DateTime @default(now())
+  finding        Finding  @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  @@index([findingId])
+}
+
+model AiExplanation {
+  id               String   @id @default(uuid())
+  organizationId   String
+  findingId        String   @unique
+  status           AiStatus @default(PENDING)
+  model            String?
+  content          Json?
+  validationPassed Boolean?
+  errorMessage     String?
+  attempts         Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  finding          Finding  @relation(fields: [findingId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String?
+  actorId        String?
+  action         String
+  entityType     String?
+  entityId       String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  @@index([organizationId, createdAt])
+}

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { parseConfig } from './config/configuration';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { parseConfig } from './config/configuration';
         return env as Record<string, string>;
       },
     }),
+    PrismaModule,
   ],
 })
 export class AppModule {}
