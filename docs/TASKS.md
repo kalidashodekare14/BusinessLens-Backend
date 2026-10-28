@@ -61,18 +61,21 @@ Rules for this file:
   - [x] **T3.6c** ORDERS finish: cancelled/refunded statuses stored, error-report path, full lint/build/unit/e2e verification, then mark T3.6 complete when all sub-tasks pass.
 - [x] **T3.7** Always delete the temp file when processing ends (success or failure). Scheduled cleanup of uploads older than 24 hours. `GET /imports`, `GET /imports/:importId`, `GET /imports/:importId/errors`.
 - [x] **T3.8** `GET /products` and `GET /orders` (paginated, orders filterable by date range).
-- [ ] **T3.9** `scripts/generate-sample-data.ts` creating `sample-data/orders.csv` and `products.csv`: about 5 months of synthetic orders where the last 30 days show a revenue drop, an order-count drop, and one product dropping sharply, so all three rules trigger. Deterministic (seeded random).
+- [x] **T3.9** `scripts/generate-sample-data.ts` creating `sample-data/orders.csv` and `products.csv`: about 5 months of synthetic orders where the last 30 days show a revenue drop, an order-count drop, and one product dropping sharply, so all three rules trigger. Deterministic (seeded random).
 
 ## Phase 4 — Analysis (Day 4)
 
-- [ ] **T4.1** Period utility: `referenceDate` from latest non-excluded order, current and previous 30-day windows (§9.1). Unit tests for month boundaries and DST-free UTC behavior.
-- [ ] **T4.2** Metrics service (§9.2): revenue, order count, AOV, per-product revenue and units for both periods, excluded statuses removed, via SQL aggregates in the tenant transaction. `GET /metrics/overview`.
-- [ ] **T4.3** Rule interface and registry. Implement `REVENUE_DROP` with severity, guards (min 20 previous orders, zero previous value), and evidence (§9.3–9.4). Unit tests at exact thresholds (-10, -20), just inside/outside, and guards.
-- [ ] **T4.4** `ORDER_COUNT_DROP` rule with tests.
-- [ ] **T4.5** `PRODUCT_REVENUE_DROP` rule (top 10 products by previous revenue, -30% / -50%) with tests.
-- [ ] **T4.6** `POST /analysis-runs` (202, creates run `QUEUED`, enqueues), `analysis` processor (sets `RUNNING`, computes periods and metrics, runs rules, stores `metricsSnapshot` and findings, sets `COMPLETED` or `FAILED` with safe message, enqueues one AI job per finding). `GET /analysis-runs`, `GET /analysis-runs/:runId`. Audit event.
+- [x] **T4.1** Period utility: `referenceDate` from latest non-excluded order, current and previous 30-day windows (§9.1). Unit tests for month boundaries and DST-free UTC behavior.
+- [x] **T4.2** Metrics service (§9.2): revenue, order count, AOV, per-product revenue and units for both periods, excluded statuses removed, via SQL aggregates in the tenant transaction. `GET /metrics/overview`.
+- [x] **T4.3** Rule interface and registry. Implement `REVENUE_DROP` with severity, guards (min 20 previous orders, zero previous value), and evidence (§9.3–9.4). Unit tests at exact thresholds (-10, -20), just inside/outside, and guards.
+- [x] **T4.4** `ORDER_COUNT_DROP` rule with tests.
+- [x] **T4.5** `PRODUCT_REVENUE_DROP` rule (top 10 products by previous revenue, -30% / -50%) with tests.
+- [x] **T4.6** `POST /analysis-runs` (202, creates run `QUEUED`, enqueues), `analysis` processor (sets `RUNNING`, computes periods and metrics, runs rules, stores `metricsSnapshot` and findings, sets `COMPLETED` or `FAILED` with safe message, enqueues one AI job per finding). `GET /analysis-runs`, `GET /analysis-runs/:runId`. Audit event.
   *Done when:* running on the sample data creates findings for all three rules.
-- [ ] **T4.7** `GET /findings` (filters: status, severity, type, analysisRunId; pagination; newest first) and `GET /findings/:findingId` (evidence, explanation, notes).
+  - [x] **T4.6a** Analysis runs API: create/list/detail with pagination, `analysis.started` audit event, and queue-failure handling.
+  - [x] **T4.6b** Analysis processor: claim run, compute periods/metrics/rules and write findings in one tenant transaction, then enqueue AI jobs after commit.
+  - [x] **T4.6c** Verify the real `sample-data/orders.csv` import creates findings for all three rules.
+- [x] **T4.7** `GET /findings` (filters: status, severity, type, analysisRunId; pagination; newest first) and `GET /findings/:findingId` (evidence, explanation, notes).
 
 ## Phase 5 — Findings workflow and AI (Day 5)
 
