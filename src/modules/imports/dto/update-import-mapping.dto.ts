@@ -6,7 +6,7 @@ export class UpdateImportMappingDto {
    * validates the keys and values against the import type and detected headers. */
   @ApiProperty({
     type: Object,
-    additionalProperties: { type: String, nullable: true },
+    additionalProperties: { type: 'string', nullable: true },
     example: { orderId: 'Order ID', orderedAt: 'Order Date', quantity: 'Qty' },
   })
   @IsObject()

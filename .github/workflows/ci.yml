@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Lint + Unit tests + Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+
+  integration:
+    name: Integration / E2E / Isolation tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: businesslens
+          POSTGRES_PASSWORD: businesslens
+          POSTGRES_DB: businesslens
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U businesslens -d businesslens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      NODE_ENV: test
+      PORT: '3000'
+      DATABASE_URL: postgresql://app_user:businesslens@localhost:5432/businesslens
+      DATABASE_MIGRATION_URL: postgresql://businesslens:businesslens@localhost:5432/businesslens
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-secret-at-least-32-characters-long-xxxxxxxx
+      CORS_ORIGIN: http://localhost:5173
+      COOKIE_SECURE: 'false'
+      COOKIE_SAMESITE: lax
+      UPLOAD_DIR: ./uploads
+      GEMINI_API_KEY: placeholder-key
+      GEMINI_MODEL: gemini-2.5-flash
+      AI_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm run test:e2e

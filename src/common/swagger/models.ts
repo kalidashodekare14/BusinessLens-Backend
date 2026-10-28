@@ -162,7 +162,7 @@ export class PreviewRowDto {
 
   @ApiProperty({
     type: Object,
-    additionalProperties: { type: String, nullable: true },
+    additionalProperties: { type: 'string', nullable: true },
     example: { orderId: 'ORDER-1', quantity: '2', unitPrice: '9.99' },
   })
   values!: Record<string, string | null>;
@@ -200,7 +200,7 @@ export class ImportUploadViewDto {
 
   @ApiProperty({
     type: Object,
-    additionalProperties: { type: String, nullable: true },
+    additionalProperties: { type: 'string', nullable: true },
     example: { orderId: 'Order ID', orderedAt: 'Order Date', quantity: 'Qty' },
   })
   suggestedMapping!: Record<string, string | null>;
@@ -224,7 +224,7 @@ export class ImportMappingViewDto {
 
   @ApiProperty({
     type: Object,
-    additionalProperties: { type: String, nullable: true },
+    additionalProperties: { type: 'string', nullable: true },
     example: { orderId: 'Order ID', orderedAt: 'Order Date', quantity: 'Qty' },
   })
   mapping!: Record<string, string | null>;
@@ -279,7 +279,7 @@ export class ImportDetailViewDto extends ImportListItemViewDto {
 
   @ApiPropertyOptional({
     type: Object,
-    additionalProperties: { type: String, nullable: true },
+    additionalProperties: { type: 'string', nullable: true },
     nullable: true,
     example: { orderId: 'Order ID', orderedAt: 'Order Date' },
   })
