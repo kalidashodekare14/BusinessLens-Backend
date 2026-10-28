@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueueModule } from '../../queues/queue.module';
-import { AuditModule } from '../audit/audit.module';
+import { AuditDataModule } from '../audit/audit-data.module';
 import { AI_CLIENT } from './ai-client';
 import { AiProcessor } from './ai.processor';
 import { ExplanationsService } from './explanations.service';
@@ -15,7 +15,7 @@ import { GeminiClient } from './gemini.client';
  * worker, never inline in a request.
  */
 @Module({
-  imports: [QueueModule, AuditModule],
+  imports: [QueueModule, AuditDataModule],
   providers: [
     {
       provide: AI_CLIENT,

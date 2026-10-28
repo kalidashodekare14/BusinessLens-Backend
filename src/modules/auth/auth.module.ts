@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { AuditModule } from '../audit/audit.module';
+import { AuditDataModule } from '../audit/audit-data.module';
 import { UsersModule } from '../users/users.module';
 import {
   AUTH_THROTTLE_LIMIT,
@@ -14,7 +14,7 @@ import { RefreshTokenService } from './refresh-token.service';
 @Module({
   imports: [
     UsersModule,
-    AuditModule,
+    AuditDataModule,
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: AUTH_THROTTLE_TTL_MS, limit: AUTH_THROTTLE_LIMIT }],
       errorMessage: AUTH_THROTTLE_MESSAGE,

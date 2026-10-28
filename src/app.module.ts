@@ -4,6 +4,7 @@ import { createConfigModuleOptions } from './config/config-module-options';
 import { PrismaModule } from './prisma/prisma.module';
 import { SecurityModule } from './common/security/security.module';
 import { QueueModule } from './queues/queue.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
@@ -21,6 +22,7 @@ import { HealthModule } from './modules/health/health.module';
     PrismaModule,
     SecurityModule,
     QueueModule,
+    AuditModule,
     AuthModule,
     UsersModule,
     OrganizationsModule,

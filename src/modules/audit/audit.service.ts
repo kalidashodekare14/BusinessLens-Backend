@@ -13,6 +13,31 @@ export interface AuditEvent {
   metadata?: Prisma.InputJsonValue;
 }
 
+export interface AuditLogView {
+  id: string;
+  action: string;
+  actorId: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Prisma.JsonValue;
+  createdAt: Date;
+}
+
+export interface AuditLogPage {
+  data: AuditLogView[];
+  meta: { page: number; pageSize: number; total: number };
+}
+
+const AUDIT_LOG_SELECT = {
+  id: true,
+  action: true,
+  actorId: true,
+  entityType: true,
+  entityId: true,
+  metadata: true,
+  createdAt: true,
+} as const;
+
 /**
  * Writes audit rows without delaying or failing the operation being audited (§6.5).
  * Failures are logged with the action only: metadata must never reach the logs.
@@ -29,6 +54,29 @@ export class AuditService {
   /** Fire-and-forget by design; callers must not await it. */
   record(event: AuditEvent): void {
     void this.write(event);
+  }
+
+  /**
+   * Tenant audit view (T6.1). Runs inside the tenant transaction, so RLS
+   * scopes it; the explicit organization filter additionally keeps the
+   * null-organization auth rows (§6.3) out of every tenant response.
+   */
+  async list(organizationId: string, page: number, pageSize: number): Promise<AuditLogPage> {
+    const { rows, total } = await this.tenantPrisma.run(organizationId, async (tx) => {
+      const [rows, total] = await Promise.all([
+        tx.auditLog.findMany({
+          where: { organizationId },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          select: AUDIT_LOG_SELECT,
+        }),
+        tx.auditLog.count({ where: { organizationId } }),
+      ]);
+      return { rows, total };
+    });
+
+    return { data: rows, meta: { page, pageSize, total } };
   }
 
   private async write(event: AuditEvent): Promise<void> {

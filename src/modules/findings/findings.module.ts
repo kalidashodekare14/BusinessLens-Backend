@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
-import { AuditModule } from '../audit/audit.module';
+import { AuditDataModule } from '../audit/audit-data.module';
 import { FindingsController } from './findings.controller';
 import { FindingsService } from './findings.service';
 
 @Module({
-  imports: [AuditModule, AiModule],
+  imports: [AuditDataModule, AiModule],
   controllers: [FindingsController],
   providers: [FindingsService],
 })
