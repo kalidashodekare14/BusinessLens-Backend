@@ -9,6 +9,13 @@ import { PrismaService } from './prisma.service';
  * transaction, sets `app.organization_id` for that transaction only, and hands the
  * callback a client scoped to it. Tenant code must never use `PrismaService`
  * directly; a missing or wrong context makes RLS return zero rows or reject writes.
+ *
+ * Convention: tenant modules import `TenantPrismaService`, or `TenantContextService`
+ * in request-scoped code, and never `prisma/prisma.service`. Enforced by the
+ * `no-restricted-imports` rule in eslint.config.mjs for src/modules/**, with only
+ * the auth, users, organizations, audit and health modules excluded because they
+ * use non-tenant tables (audit also uses the dedicated null-organization path).
+ * Worker jobs go through `TenantJobRunner` in src/queues/.
  */
 @Injectable()
 export class TenantPrismaService {
