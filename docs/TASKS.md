@@ -19,7 +19,7 @@ Rules for this file:
   *Done when:* app fails fast with a clear message on a missing or invalid variable.
 - [x] **T0.3** Prisma setup: add `schema.prisma` from Appendix A, first migration, a migration that creates the `app_user` role with least privileges (no superuser, no BYPASSRLS), and two connection URLs (owner for migrations, `app_user` for runtime).
   *Done when:* `prisma migrate dev` works and the app connects as `app_user`.
-- [ ] **T0.4** App bootstrap: global prefix `/api/v1`, `ValidationPipe` (whitelist, forbidNonWhitelisted, transform), global exception filter producing the §12 error format, response-envelope interceptor, request-id logging, CORS from `CORS_ORIGIN` with credentials, `cookie-parser`. `GET /health` checks DB and Redis.
+- [x] **T0.4** App bootstrap: global prefix `/api/v1`, `ValidationPipe` (whitelist, forbidNonWhitelisted, transform), global exception filter producing the §12 error format, response-envelope interceptor, request-id logging, CORS from `CORS_ORIGIN` with credentials, `cookie-parser`. `GET /health` checks DB and Redis.
   *Done when:* an invalid body returns the standard 400 error format; health returns data envelope.
 
 ## Phase 1 — Auth and organizations (Day 1–2)
