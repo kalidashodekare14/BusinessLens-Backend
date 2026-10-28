@@ -4,6 +4,7 @@ Backend for BusinessLens: CSV import, deterministic metrics, rule-based findings
 
 ## Stack
 
+
 - Node.js 22+ / NestJS / TypeScript (strict)
 - PostgreSQL 16 through Prisma (runtime role `app_user`, migrations as the owner role)
 - Redis 7 + BullMQ for imports, analysis and AI explanation jobs
