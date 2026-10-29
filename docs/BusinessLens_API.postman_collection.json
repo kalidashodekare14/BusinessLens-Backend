@@ -1,0 +1,97 @@
+{
+  "info": {
+    "name": "BusinessLens API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "BusinessLens Backend API collection"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "token", "value": "" },
+    { "key": "orgId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        { "name": "Register", "request": { "method": "POST", "url": "{{baseUrl}}/auth/register", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\",\n  \"password\": \"correct horse battery staple\",\n  \"name\": \"Avery Owner\"\n}" } } },
+        { "name": "Login", "request": { "method": "POST", "url": "{{baseUrl}}/auth/login", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\",\n  \"password\": \"correct horse battery staple\"\n}" } } },
+        { "name": "Refresh", "request": { "method": "POST", "url": "{{baseUrl}}/auth/refresh" } },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout" } }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/users/me", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Update profile", "request": { "method": "PATCH", "url": "{{baseUrl}}/users/me", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Avery Owner\"\n}" } } },
+        { "name": "Change password", "request": { "method": "POST", "url": "{{baseUrl}}/users/me/change-password", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"old-password-123\",\n  \"newPassword\": \"new-password-456\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Organizations",
+      "item": [
+        { "name": "Create org", "request": { "method": "POST", "url": "{{baseUrl}}/organizations", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Acme Retail\"\n}" } } },
+        { "name": "List orgs", "request": { "method": "GET", "url": "{{baseUrl}}/organizations?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Get org", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Update org", "request": { "method": "PATCH", "url": "{{baseUrl}}/organizations/{{orgId}}", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Acme Retail Co.\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Catalog",
+      "item": [
+        { "name": "List products", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/products?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "List orders", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/orders?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } }
+      ]
+    },
+    {
+      "name": "Imports",
+      "item": [
+        { "name": "Upload", "request": { "method": "POST", "url": "{{baseUrl}}/organizations/{{orgId}}/imports", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "body": { "mode": "formdata", "formdata": [ { "key": "type", "value": "ORDERS", "type": "text" }, { "key": "file", "type": "file", "src": "" } ] } } },
+        { "name": "List imports", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/imports?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Get import", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/imports/{{importId}}", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Update mapping", "request": { "method": "PUT", "url": "{{baseUrl}}/organizations/{{orgId}}/imports/{{importId}}/mapping", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"mapping\": { \"orderId\": \"Order ID\", \"orderedAt\": \"Order Date\", \"quantity\": \"Qty\" }\n}" } } },
+        { "name": "Confirm import", "request": { "method": "POST", "url": "{{baseUrl}}/organizations/{{orgId}}/imports/{{importId}}/confirm", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Import errors", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/imports/{{importId}}/errors?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } }
+      ]
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        { "name": "Create run", "request": { "method": "POST", "url": "{{baseUrl}}/organizations/{{orgId}}/analysis-runs", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "List runs", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/analysis-runs?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Get run", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/analysis-runs/{{analysisRunId}}", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } }
+      ]
+    },
+    {
+      "name": "Findings",
+      "item": [
+        { "name": "List findings", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/findings?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Get finding", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/findings/{{findingId}}", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Update status", "request": { "method": "PATCH", "url": "{{baseUrl}}/organizations/{{orgId}}/findings/{{findingId}}/status", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"INVESTIGATING\"\n}" } } },
+        { "name": "Add note", "request": { "method": "POST", "url": "{{baseUrl}}/organizations/{{orgId}}/findings/{{findingId}}/notes", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"body\": \"Checked the promotion calendar.\"\n}" } } },
+        { "name": "Delete note", "request": { "method": "DELETE", "url": "{{baseUrl}}/organizations/{{orgId}}/findings/{{findingId}}/notes/{{noteId}}", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Regenerate explanation", "request": { "method": "POST", "url": "{{baseUrl}}/organizations/{{orgId}}/findings/{{findingId}}/explanation", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } }
+      ]
+    },
+    {
+      "name": "Metrics & Dashboard",
+      "item": [
+        { "name": "Metrics overview", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/metrics/overview", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Dashboard", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/dashboard", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } }
+      ]
+    },
+    {
+      "name": "Audit & Demo",
+      "item": [
+        { "name": "Audit logs", "request": { "method": "GET", "url": "{{baseUrl}}/organizations/{{orgId}}/audit-logs?page=1&pageSize=20", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Load demo data", "request": { "method": "POST", "url": "{{baseUrl}}/organizations/{{orgId}}/demo-data", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } }
+      ]
+    }
+  ]
+}
