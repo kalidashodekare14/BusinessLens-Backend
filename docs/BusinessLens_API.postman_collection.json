@@ -2,33 +2,37 @@
   "info": {
     "name": "BusinessLens API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "BusinessLens Backend API collection"
+    "description": "BusinessLens Backend API. Set {{baseUrl}}, then run Auth > Login (token auto-saved)."
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
     { "key": "token", "value": "" },
-    { "key": "orgId", "value": "" }
+    { "key": "orgId", "value": "" },
+    { "key": "importId", "value": "" },
+    { "key": "analysisRunId", "value": "" },
+    { "key": "findingId", "value": "" },
+    { "key": "noteId", "value": "" }
   ],
   "item": [
     {
       "name": "Health",
       "item": [
-        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/health", "description": "Liveness/readiness (DB + Redis). Returns 200 or 503." } }
       ]
     },
     {
       "name": "Auth",
       "item": [
-        { "name": "Register", "request": { "method": "POST", "url": "{{baseUrl}}/auth/register", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\",\n  \"password\": \"correct horse battery staple\",\n  \"name\": \"Avery Owner\"\n}" } } },
-        { "name": "Login", "request": { "method": "POST", "url": "{{baseUrl}}/auth/login", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\",\n  \"password\": \"correct horse battery staple\"\n}" } } },
-        { "name": "Refresh", "request": { "method": "POST", "url": "{{baseUrl}}/auth/refresh" } },
-        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout" } }
+        { "name": "Register", "request": { "method": "POST", "url": "{{baseUrl}}/auth/register", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\",\n  \"password\": \"correct horse battery staple\",\n  \"name\": \"Avery Owner\"\n}" }, "description": "Create account. 201 on success." } },
+        { "name": "Login", "event": [{ "listen": "test", "script": { "exec": ["const j = pm.response.json();", "if (j && j.data && j.data.accessToken) pm.collectionVariables.set('token', j.data.accessToken);"], "type": "text/javascript" } }], "request": { "method": "POST", "url": "{{baseUrl}}/auth/login", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\",\n  \"password\": \"correct horse battery staple\"\n}" }, "description": "Login; saves accessToken to {{token}}." } },
+        { "name": "Refresh", "request": { "method": "POST", "url": "{{baseUrl}}/auth/refresh", "description": "Rotate refresh cookie; returns new access token." } },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout", "description": "Revoke refresh token; clears cookie. 204." } }
       ]
     },
     {
       "name": "Users",
       "item": [
-        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/users/me", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }] } },
+        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/users/me", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "description": "Current user + organizations." } },
         { "name": "Update profile", "request": { "method": "PATCH", "url": "{{baseUrl}}/users/me", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Avery Owner\"\n}" } } },
         { "name": "Change password", "request": { "method": "POST", "url": "{{baseUrl}}/users/me/change-password", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"old-password-123\",\n  \"newPassword\": \"new-password-456\"\n}" } } }
       ]
