@@ -84,8 +84,8 @@ Rules for this file:
 - [x] **T5.3** Gemini client behind an `AiClient` interface: timeout, retry with exponential backoff, error mapping, no key logging. Fake client for tests. Check the current Google GenAI SDK package and model name before coding.
   *Done when:* package `@google/genai` (v2.31.0) verified against Google's current docs; structured output via `responseJsonSchema`; unit tests drive retry/timeout/redaction with an injected call stub.
 - [x] **T5.4** Prompt builder and `zod` output schema (§10). Request structured JSON output. Unit-test the prompt contains only evidence fields.
-- [ ] **T5.5** 🔒 Number validator (§10): extract numbers (percent, currency, plain, with thousands separators) from every generated text field and match them against evidence values with rounding tolerance. Tests must include: invented number, number from another finding, rounded number, percent vs ratio, number inside a word, negative numbers.
-  *Implemented and passing (unit + e2e); awaiting owner review per the 🔒 rule.*
+- [x] **T5.5** 🔒 Number validator (§10): extract numbers (percent, currency, plain, with thousands separators) from every generated text field and match them against evidence values with rounding tolerance. Tests must include: invented number, number from another finding, rounded number, percent vs ratio, number inside a word, negative numbers.
+  *Implemented and passing (unit + e2e); owner-approved 2026-10-29.*
 - [x] **T5.6** `ai-explanation` processor with `AiExplanation` lifecycle (`PENDING` → `GENERATING` → `COMPLETED`/`FAILED`), validation, one retry on validation failure, up to 3 attempts on transient errors. `POST /findings/:findingId/explanation` to regenerate. Finding detail must still work when the explanation is `FAILED`.
 - [x] **T5.7** `GET /dashboard`: counts of open findings by severity, latest analysis run, key metrics from the latest run.
 
