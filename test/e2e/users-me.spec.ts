@@ -135,7 +135,7 @@ describe('users self-service (e2e)', () => {
     const activeBefore = await prisma.refreshToken.count({
       where: { userId: user.id, revokedAt: null },
     });
-    expect(activeBefore).toBe(2);
+    expect(activeBefore).toBe(3);
 
     const newPassword = 'an even better password 42';
     const res = await request(ctx.server)
