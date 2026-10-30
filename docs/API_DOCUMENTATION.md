@@ -8,6 +8,77 @@
 
 ---
 
+## 0. Conventions
+
+### 0.1 Common enums
+
+- `MembershipRole`: `OWNER` | `MEMBER`
+- `ImportType`: `ORDERS` | `PRODUCTS`
+- `ImportStatus`: `UPLOADED` | `MAPPED` | `PROCESSING` | `COMPLETED` | `FAILED`
+- `AnalysisStatus`: `QUEUED` | `RUNNING` | `COMPLETED` | `FAILED`
+- `FindingType`: `REVENUE_DROP` | `ORDER_COUNT_DROP` | `PRODUCT_REVENUE_DROP`
+- `Severity`: `MEDIUM` | `HIGH`
+- `FindingStatus`: `OPEN` | `INVESTIGATING` | `RESOLVED`
+- `AiStatus`: `PENDING` | `GENERATING` | `COMPLETED` | `FAILED`
+- `CheckStatus`: `ok` | `down`
+
+### 0.2 Canonical CSV fields (strict schema)
+
+The mapping endpoint keys are **canonical fields** (the system's contract). The values are **actual CSV column headers** from `detectedHeaders`. Unknown keys are rejected with `is not a field for <type> imports`.
+
+**ORDERS canonical keys:**
+
+| Key | Type | Required | Source column synonyms |
+| --- | --- | --- | --- |
+| `orderId` | `text` (max 128) | yes | order id, orderid, order number, order no, id |
+| `orderedAt` | `date` (ISO 8601 or YYYY-MM-DD) | yes | ordered at, order date, date, created at, ordered on, timestamp |
+| `status` | `status` (default `completed`) | no | status, order status |
+| `productName` | `text` (max 200) | yes | product name, product, item name, item, description |
+| `sku` | `text` (max 100) | no | sku, product sku, item sku |
+| `quantity` | `positiveInteger` | yes | quantity, qty, units, count |
+| `unitPrice` | `money` (non-negative, ≤2 decimals) | yes | unit price, price, unit cost, item price |
+
+**PRODUCTS canonical keys:**
+
+| Key | Type | Required | Source column synonyms |
+| --- | --- | --- | --- |
+| `name` | `text` (max 200) | yes | name, product name, product, title |
+| `sku` | `text` (max 100) | no | sku, product sku, item sku |
+| `price` | `money` (non-negative, ≤2 decimals) | no | price, unit price, list price |
+
+**Excluded order statuses** (stored but excluded from all metrics): `cancelled`, `refunded`, `voided` (case-insensitive).
+
+### 0.3 Standard error codes
+
+`400 VALIDATION_FAILED`, `401 UNAUTHORIZED`/`REFRESH_TOKEN_INVALID`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 IMPORT_NOT_MAPPABLE`/`IMPORT_NOT_CONFIRMABLE`/`CONFLICT`/`INVALID_TRANSITION`, `422 INVALID_CSV_FILE`/`IMPORT_FILE_INVALID`/`IMPORT_FILE_UNAVAILABLE`/`NO_ORDER_DATA`/`UNPROCESSABLE`, `429 RATE_LIMITED`, `500 INTERNAL_ERROR`/`DEMO_DATA_UNAVAILABLE`, `503 IMPORT_QUEUE_UNAVAILABLE`/`ANALYSIS_QUEUE_UNAVAILABLE`/`EXPLANATION_QUEUE_UNAVAILABLE`.
+
+Error envelope shape:
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message",
+    "details": [
+      {
+        "field": "fieldName",
+        "constraint": "rule",
+        "message": "detail"
+      }
+    ]
+  }
+}
+```
+
+### 0.4 Pagination
+
+Default `page=1`, default `pageSize=20`, max `pageSize=100`.
+
+### 0.5 Health error 503
+
+`GET /health` returns `200` with `status: ok` when both DB and Redis are up; `503` with `status: degraded` otherwise. Body stays in the data envelope.
+
+---
+
 ## 1. Health
 
 ### 1.1 GET /health
@@ -15,13 +86,18 @@
 - **Purpose:** Liveness/readiness probe checking DB and Redis.
 - **Auth:** Public
 - **Headers:** none
+- **Path params:** none
+- **Query params:** none
 - **Success 200:**
 ```json
 {
   "data": {
     "status": "ok",
-    "db": "ok",
-    "redis": "ok"
+    "checks": {
+      "database": "ok",
+      "redis": "ok"
+    },
+    "timestamp": "2026-10-30T07:20:55.000Z"
   },
   "meta": {}
 }
@@ -31,8 +107,11 @@
 {
   "data": {
     "status": "degraded",
-    "db": "ok",
-    "redis": "down"
+    "checks": {
+      "database": "ok",
+      "redis": "down"
+    },
+    "timestamp": "2026-10-30T07:20:55.000Z"
   },
   "meta": {}
 }
@@ -70,43 +149,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 400 `VALIDATION_FAILED`:
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "Validation failed",
-    "details": [
-      {
-        "field": "password",
-        "constraint": "minLength",
-        "message": "password must be at least 10 characters"
-      }
-    ]
-  }
-}
-```
-  - 409 `EMAIL_TAKEN`:
-```json
-{
-  "error": {
-    "code": "EMAIL_TAKEN",
-    "message": "Unable to register",
-    "details": []
-  }
-}
-```
-  - 429 `RATE_LIMITED`:
-```json
-{
-  "error": {
-    "code": "RATE_LIMITED",
-    "message": "Too many requests",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 VALIDATION_FAILED`, `409 CONFLICT` (generic, does not confirm email existence), `429 RATE_LIMITED`.
 
 ### 2.2 POST /auth/login
 
@@ -132,27 +175,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 401 `INVALID_CREDENTIALS`:
-```json
-{
-  "error": {
-    "code": "INVALID_CREDENTIALS",
-    "message": "Invalid email or password",
-    "details": []
-  }
-}
-```
-  - 429 `RATE_LIMITED`:
-```json
-{
-  "error": {
-    "code": "RATE_LIMITED",
-    "message": "Too many requests",
-    "details": []
-  }
-}
-```
+- **Errors:** `401 INVALID_CREDENTIALS` (same message for unknown email and wrong password), `429 RATE_LIMITED`.
 
 ### 2.3 POST /auth/refresh
 
@@ -170,17 +193,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 401 `UNAUTHORIZED` (invalid/expired/reused token; cookie cleared):
-```json
-{
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Invalid refresh token",
-    "details": []
-  }
-}
-```
+- **Errors:** `401 REFRESH_TOKEN_INVALID` (invalid/expired/reused token; cookie cleared). Reuse revokes the user's active tokens.
 
 ### 2.4 POST /auth/logout
 
@@ -244,17 +257,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 400 `VALIDATION_FAILED`:
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "Validation failed",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 VALIDATION_FAILED`.
 
 ### 3.3 POST /users/me/change-password
 
@@ -271,17 +274,7 @@
   - `currentPassword` (string, min 1, max 128, required)
   - `newPassword` (string, min 10, max 128, required)
 - **Success 204:** No content (cookie cleared)
-- **Errors:**
-  - 400 `VALIDATION_FAILED` (wrong current password):
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "Current password is incorrect",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 INVALID_CURRENT_PASSWORD` (wrong current password), `404 NOT_FOUND`.
 
 ---
 
@@ -313,17 +306,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 400 `VALIDATION_FAILED`:
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "Validation failed",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 VALIDATION_FAILED`.
 
 ### 4.2 GET /organizations
 
@@ -371,17 +354,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Organization not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`.
 
 ### 4.4 PATCH /organizations/:organizationId
 
@@ -410,27 +383,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 403 `FORBIDDEN`:
-```json
-{
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Insufficient role",
-    "details": []
-  }
-}
-```
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Organization not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `403 FORBIDDEN`, `404 NOT_FOUND`.
 
 ---
 
@@ -481,15 +434,7 @@
       "orderedAt": "2026-10-15T10:30:00.000Z",
       "status": "completed",
       "total": "59.97",
-      "items": [
-        {
-          "id": "e5f6a7b8-c9d0-1234-efab-345678901234",
-          "productName": "Widget A",
-          "quantity": 3,
-          "unitPrice": "19.99",
-          "lineTotal": "59.97"
-        }
-      ]
+      "itemCount": 1
     }
   ],
   "meta": {
@@ -499,6 +444,7 @@
   }
 }
 ```
+- **Errors:** `400 VALIDATION_FAILED` when `from` is after `to`.
 
 ---
 
@@ -511,8 +457,8 @@
 - **Headers:** `Authorization: Bearer {{token}}`, `Content-Type: multipart/form-data`
 - **Path:** `organizationId` (uuid)
 - **Form fields:**
-  - `file` (file, .csv, <=5MB, required)
-  - `type` (string, `ORDERS` or `PRODUCTS`, required)
+  - `file` (file, `.csv`, ≤5 MB, UTF-8, required)
+  - `type` (enum `ORDERS` | `PRODUCTS`, required)
 - **Success 201:**
 ```json
 {
@@ -541,17 +487,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 400 `VALIDATION_FAILED` (bad file/type/size):
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "File must be a CSV under 5MB",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 VALIDATION_FAILED` (bad file/type/size), `422 INVALID_CSV_FILE` (non-CSV, binary, empty, >5MB).
 
 ### 6.2 GET /organizations/:organizationId/imports
 
@@ -621,21 +557,11 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Import job not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`.
 
 ### 6.4 PUT /organizations/:organizationId/imports/:importId/mapping
 
-- **Purpose:** Save column mapping, return 20-row preview with errors.
+- **Purpose:** Save column mapping, return 20-row preview with per-row errors.
 - **Auth:** Bearer + member
 - **Headers:** `Authorization: Bearer {{token}}`, `Content-Type: application/json`
 - **Path:** `organizationId` (uuid), `importId` (uuid)
@@ -653,12 +579,27 @@
   }
 }
 ```
-  - `mapping` (object, required): maps canonical fields to CSV header names or null
-  - Required canonical fields: `orderId`, `orderedAt`, `productName`, `quantity`, `unitPrice` (for ORDERS); `name` (for PRODUCTS)
+  - `mapping` (object, required): maps **canonical field keys** → **detected CSV header strings** or `null`.
+  - Canonical keys for `ORDERS`: `orderId`, `orderedAt`, `status`, `productName`, `sku`, `quantity`, `unitPrice`.
+  - Canonical keys for `PRODUCTS`: `name`, `sku`, `price`.
+  - Required: `orderId`, `orderedAt`, `productName`, `quantity`, `unitPrice` (ORDERS); `name` (PRODUCTS).
+  - Optional fields may be omitted or set to `null`.
+  - Two canonical fields may not share one column header.
+  - Unmapped CSV columns are ignored (no custom-metadata storage in MVP).
 - **Success 200:**
 ```json
 {
   "data": {
+    "id": "f6a7b8c9-d0e1-2345-fabc-456789012345",
+    "type": "ORDERS",
+    "status": "MAPPED",
+    "detectedHeaders": [
+      "order_id",
+      "ordered_at",
+      "product_name",
+      "quantity",
+      "unit_price"
+    ],
     "mapping": {
       "orderId": "order_id",
       "orderedAt": "ordered_at",
@@ -666,41 +607,30 @@
       "quantity": "quantity",
       "unitPrice": "unit_price"
     },
-    "preview": [
-      {
-        "rowNumber": 2,
-        "data": {
-          "orderId": "ORD-001",
-          "orderedAt": "2026-10-15",
-          "productName": "Widget A",
-          "quantity": 3,
-          "unitPrice": "19.99"
-        },
-        "errors": []
-      }
-    ],
-    "rowErrors": [
-      {
-        "rowNumber": 5,
-        "field": "quantity",
-        "reason": "must be a positive integer"
-      }
-    ]
+    "preview": {
+      "rows": [
+        {
+          "rowNumber": 1,
+          "values": {
+            "orderId": "ORD-001",
+            "orderedAt": "2026-10-15",
+            "productName": "Widget A",
+            "quantity": "3",
+            "unitPrice": "19.99",
+            "status": null,
+            "sku": null
+          },
+          "valid": true,
+          "errors": []
+        }
+      ],
+      "truncated": false
+    }
   },
   "meta": {}
 }
 ```
-- **Errors:**
-  - 400 `VALIDATION_FAILED` (missing required fields):
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "Missing required field mapping: orderId",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 VALIDATION_FAILED` (missing required, unknown canonical key, value not a detected header, duplicate column), `404 NOT_FOUND`, `409 IMPORT_NOT_MAPPABLE` (status not UPLOADED/MAPPED), `409 IMPORT_FILE_UNAVAILABLE`.
 
 ### 6.5 POST /organizations/:organizationId/imports/:importId/confirm
 
@@ -714,36 +644,17 @@
 {
   "data": {
     "id": "f6a7b8c9-d0e1-2345-fabc-456789012345",
+    "type": "ORDERS",
     "status": "PROCESSING"
   },
   "meta": {}
 }
 ```
-- **Errors:**
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Import job not found",
-    "details": []
-  }
-}
-```
-  - 409 `CONFLICT` (already processing/completed):
-```json
-{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Import already confirmed",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`, `409 IMPORT_NOT_CONFIRMABLE` (status not MAPPED), `503 IMPORT_QUEUE_UNAVAILABLE`.
 
 ### 6.6 GET /organizations/:organizationId/imports/:importId/errors
 
-- **Purpose:** Paginated error report.
+- **Purpose:** Paginated error report (capped at 1000 entries).
 - **Auth:** Bearer + member
 - **Headers:** `Authorization: Bearer {{token}}`
 - **Path:** `organizationId` (uuid), `importId` (uuid)
@@ -760,7 +671,7 @@
     {
       "rowNumber": 12,
       "field": "unitPrice",
-      "reason": "must be a non-negative decimal"
+      "reason": "must be a non-negative amount with at most 2 decimal places"
     }
   ],
   "meta": {
@@ -793,17 +704,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 422 `UNPROCESSABLE` (no orders):
-```json
-{
-  "error": {
-    "code": "UNPROCESSABLE",
-    "message": "No orders found for analysis",
-    "details": []
-  }
-}
-```
+- **Errors:** `422 UNPROCESSABLE` (no orders available), `503 ANALYSIS_QUEUE_UNAVAILABLE`.
 
 ### 7.2 GET /organizations/:organizationId/analysis-runs
 
@@ -820,6 +721,11 @@
       "id": "a7b8c9d0-e1f2-3456-abcd-567890123456",
       "status": "COMPLETED",
       "referenceDate": "2026-10-29T00:00:00.000Z",
+      "currentStart": "2026-09-30T00:00:00.000Z",
+      "currentEnd": "2026-10-29T00:00:00.000Z",
+      "previousStart": "2026-08-31T00:00:00.000Z",
+      "previousEnd": "2026-09-29T00:00:00.000Z",
+      "errorMessage": null,
       "createdAt": "2026-10-30T07:20:55.000Z",
       "completedAt": "2026-10-30T07:21:10.000Z"
     }
@@ -850,15 +756,37 @@
     "previousStart": "2026-08-31T00:00:00.000Z",
     "previousEnd": "2026-09-29T00:00:00.000Z",
     "metricsSnapshot": {
+      "version": 1,
+      "referenceDate": "2026-10-29T00:00:00.000Z",
       "current": {
+        "start": "2026-09-30T00:00:00.000Z",
+        "end": "2026-10-29T00:00:00.000Z",
         "revenue": "12345.67",
-        "orders": 45,
-        "aov": "274.35"
+        "orderCount": 45,
+        "averageOrderValue": "274.35",
+        "products": [
+          {
+            "productId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+            "name": "Widget A",
+            "revenue": "5000.00",
+            "units": 100
+          }
+        ]
       },
       "previous": {
+        "start": "2026-08-31T00:00:00.000Z",
+        "end": "2026-09-29T00:00:00.000Z",
         "revenue": "15000.00",
-        "orders": 60,
-        "aov": "250.00"
+        "orderCount": 60,
+        "averageOrderValue": "250.00",
+        "products": [
+          {
+            "productId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+            "name": "Widget A",
+            "revenue": "6000.00",
+            "units": 120
+          }
+        ]
       }
     },
     "errorMessage": null,
@@ -868,17 +796,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Analysis run not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`.
 
 ---
 
@@ -890,21 +808,20 @@
 - **Auth:** Bearer + member
 - **Headers:** `Authorization: Bearer {{token}}`
 - **Path:** `organizationId` (uuid)
-- **Query:** `status` (OPEN|INVESTIGATING|RESOLVED, optional), `severity` (MEDIUM|HIGH, optional), `type` (REVENUE_DROP|ORDER_COUNT_DROP|PRODUCT_REVENUE_DROP, optional), `analysisRunId` (uuid, optional), `page` (int, default 1), `pageSize` (int, 1-100, default 20)
+- **Query:** `status` (enum `OPEN`|`INVESTIGATING`|`RESOLVED`, optional), `severity` (enum `MEDIUM`|`HIGH`, optional), `type` (enum `REVENUE_DROP`|`ORDER_COUNT_DROP`|`PRODUCT_REVENUE_DROP`, optional), `analysisRunId` (uuid, optional), `page` (int, default 1), `pageSize` (int, 1-100, default 20)
 - **Success 200:** (newest first)
 ```json
 {
   "data": [
     {
       "id": "b8c9d0e1-f2a3-4567-bcde-678901234567",
+      "analysisRunId": "a7b8c9d0-e1f2-3456-abcd-567890123456",
       "type": "REVENUE_DROP",
       "severity": "HIGH",
       "status": "OPEN",
       "title": "Revenue dropped 17.7%",
       "subjectKey": null,
-      "ruleVersion": "1.0",
       "createdAt": "2026-10-30T07:21:10.000Z",
-      "updatedAt": "2026-10-30T07:21:10.000Z",
       "resolvedAt": null
     }
   ],
@@ -927,6 +844,7 @@
 {
   "data": {
     "id": "b8c9d0e1-f2a3-4567-bcde-678901234567",
+    "analysisRunId": "a7b8c9d0-e1f2-3456-abcd-567890123456",
     "type": "REVENUE_DROP",
     "severity": "HIGH",
     "status": "OPEN",
@@ -962,7 +880,6 @@
       }
     },
     "explanation": {
-      "id": "c9d0e1f2-a3b4-5678-cdef-789012345678",
       "status": "COMPLETED",
       "model": "gemini-2.0-flash",
       "content": {
@@ -981,7 +898,10 @@
         ],
         "uncertainty": "Cause not verified"
       },
-      "validationPassed": true
+      "validationPassed": true,
+      "errorMessage": null,
+      "attempts": 1,
+      "updatedAt": "2026-10-30T07:22:00.000Z"
     },
     "notes": [
       {
@@ -998,17 +918,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Finding not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`.
 
 ### 8.3 PATCH /organizations/:organizationId/findings/:findingId/status
 
@@ -1022,40 +932,22 @@
   "status": "INVESTIGATING"
 }
 ```
-  - `status` (enum: OPEN, INVESTIGATING, RESOLVED, required)
-  - Allowed transitions: OPEN→INVESTIGATING, INVESTIGATING→RESOLVED, RESOLVED→OPEN
+  - `status` (enum `OPEN` | `INVESTIGATING` | `RESOLVED`, required)
+  - Allowed transitions: `OPEN`→`INVESTIGATING`, `INVESTIGATING`→`RESOLVED`, `RESOLVED`→`OPEN` (reopen). No-op transitions rejected.
+  - Setting `RESOLVED` sets `resolvedAt`; reopening clears it.
 - **Success 200:**
 ```json
 {
   "data": {
+    "id": "b8c9d0e1-f2a3-4567-bcde-678901234567",
     "status": "INVESTIGATING",
-    "resolvedAt": null
+    "resolvedAt": null,
+    "updatedAt": "2026-10-30T07:31:00.000Z"
   },
   "meta": {}
 }
 ```
-  - Setting RESOLVED sets `resolvedAt`; reopening clears it.
-- **Errors:**
-  - 409 `FINDING_INVALID_TRANSITION`:
-```json
-{
-  "error": {
-    "code": "FINDING_INVALID_TRANSITION",
-    "message": "Cannot transition from OPEN to RESOLVED",
-    "details": []
-  }
-}
-```
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Finding not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`, `409 INVALID_TRANSITION` (also code `FINDING_INVALID_TRANSITION` in some paths — treat any 409 as invalid transition).
 
 ### 8.4 POST /organizations/:organizationId/findings/:findingId/notes
 
@@ -1082,27 +974,7 @@
   "meta": {}
 }
 ```
-- **Errors:**
-  - 400 `VALIDATION_FAILED`:
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "Validation failed",
-    "details": []
-  }
-}
-```
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Finding not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `400 VALIDATION_FAILED`, `404 NOT_FOUND`.
 
 ### 8.5 DELETE /organizations/:organizationId/findings/:findingId/notes/:noteId
 
@@ -1111,31 +983,11 @@
 - **Headers:** `Authorization: Bearer {{token}}`
 - **Path:** `organizationId` (uuid), `findingId` (uuid), `noteId` (uuid)
 - **Success 204:** No content
-- **Errors:**
-  - 403 `FORBIDDEN` (not author):
-```json
-{
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Not the note author",
-    "details": []
-  }
-}
-```
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Note not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `403 FORBIDDEN` (not author), `404 NOT_FOUND`.
 
 ### 8.6 POST /organizations/:organizationId/findings/:findingId/explanation
 
-- **Purpose:** Regenerate AI explanation.
+- **Purpose:** Regenerate AI explanation (re-queues generation).
 - **Auth:** Bearer + member
 - **Headers:** `Authorization: Bearer {{token}}`
 - **Path:** `organizationId` (uuid), `findingId` (uuid)
@@ -1144,22 +996,16 @@
 ```json
 {
   "data": {
-    "status": "PENDING"
+    "id": "c9d0e1f2-a3b4-5678-cdef-789012345678",
+    "findingId": "b8c9d0e1-f2a3-4567-bcde-678901234567",
+    "status": "PENDING",
+    "attempts": 0,
+    "updatedAt": "2026-10-30T07:32:00.000Z"
   },
   "meta": {}
 }
 ```
-- **Errors:**
-  - 404 `NOT_FOUND`:
-```json
-{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Finding not found",
-    "details": []
-  }
-}
-```
+- **Errors:** `404 NOT_FOUND`, `503 EXPLANATION_QUEUE_UNAVAILABLE`.
 
 ---
 
@@ -1167,7 +1013,7 @@
 
 ### 9.1 GET /organizations/:organizationId/metrics/overview
 
-- **Purpose:** Key metrics overview.
+- **Purpose:** Key metrics overview (current vs previous 30-day periods).
 - **Auth:** Bearer + member
 - **Headers:** `Authorization: Bearer {{token}}`
 - **Path:** `organizationId` (uuid)
@@ -1177,24 +1023,45 @@
   "data": {
     "referenceDate": "2026-10-29T00:00:00.000Z",
     "current": {
+      "start": "2026-09-30T00:00:00.000Z",
+      "end": "2026-10-29T00:00:00.000Z",
       "revenue": "12345.67",
-      "orders": 45,
-      "aov": "274.35"
+      "orderCount": 45,
+      "averageOrderValue": "274.35",
+      "products": [
+        {
+          "productId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+          "name": "Widget A",
+          "revenue": "5000.00",
+          "units": 100
+        }
+      ]
     },
     "previous": {
+      "start": "2026-08-31T00:00:00.000Z",
+      "end": "2026-09-29T00:00:00.000Z",
       "revenue": "15000.00",
-      "orders": 60,
-      "aov": "250.00"
+      "orderCount": 60,
+      "averageOrderValue": "250.00",
+      "products": [
+        {
+          "productId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+          "name": "Widget A",
+          "revenue": "6000.00",
+          "units": 120
+        }
+      ]
     },
-    "changePercent": {
+    "changes": {
       "revenue": -17.7,
-      "orders": -25.0,
-      "aov": 9.7
+      "orderCount": -25.0,
+      "averageOrderValue": 9.7
     }
   },
   "meta": {}
 }
 ```
+- **Errors:** `422 NO_ORDER_DATA` (no non-excluded orders).
 
 ### 9.2 GET /organizations/:organizationId/dashboard
 
@@ -1206,23 +1073,37 @@
 ```json
 {
   "data": {
-    "findings": {
-      "open": {
-        "medium": 2,
-        "high": 1
-      },
-      "investigating": 0,
-      "resolved": 3
+    "openFindings": {
+      "total": 3,
+      "bySeverity": {
+        "MEDIUM": 2,
+        "HIGH": 1
+      }
     },
     "latestAnalysisRun": {
       "id": "a7b8c9d0-e1f2-3456-abcd-567890123456",
       "status": "COMPLETED",
-      "createdAt": "2026-10-30T07:20:55.000Z"
+      "referenceDate": "2026-10-29T00:00:00.000Z",
+      "createdAt": "2026-10-30T07:20:55.000Z",
+      "completedAt": "2026-10-30T07:21:10.000Z"
     },
-    "keyMetrics": {
-      "revenue": "12345.67",
-      "orders": 45,
-      "aov": "274.35"
+    "metrics": {
+      "referenceDate": "2026-10-29T00:00:00.000Z",
+      "revenue": {
+        "current": "12345.67",
+        "previous": "15000.00",
+        "changePercent": -17.7
+      },
+      "orderCount": {
+        "current": 45,
+        "previous": 60,
+        "changePercent": -25.0
+      },
+      "averageOrderValue": {
+        "current": "274.35",
+        "previous": "250.00",
+        "changePercent": 9.7
+      }
     }
   },
   "meta": {}
@@ -1261,21 +1142,11 @@
   }
 }
 ```
-- **Errors:**
-  - 403 `FORBIDDEN`:
-```json
-{
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Insufficient role",
-    "details": []
-  }
-}
-```
+- **Errors:** `403 FORBIDDEN`.
 
 ### 10.2 POST /organizations/:organizationId/demo-data
 
-- **Purpose:** Load sample dataset (queued).
+- **Purpose:** Load sample dataset (queued via import pipeline).
 - **Auth:** Bearer + OWNER
 - **Headers:** `Authorization: Bearer {{token}}`
 - **Path:** `organizationId` (uuid)
@@ -1284,42 +1155,97 @@
 ```json
 {
   "data": {
-    "status": "QUEUED"
+    "status": "PROCESSING",
+    "imports": [
+      {
+        "id": "f6a7b8c9-d0e1-2345-fabc-456789012345",
+        "type": "PRODUCTS",
+        "status": "PROCESSING"
+      },
+      {
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567891",
+        "type": "ORDERS",
+        "status": "PROCESSING"
+      }
+    ]
   },
   "meta": {}
 }
 ```
-- **Errors:**
-  - 403 `FORBIDDEN`:
+- **Errors:** `403 FORBIDDEN`, `500 DEMO_DATA_UNAVAILABLE`.
+
+---
+
+## Appendix A — CSV Import & Mapping Quick Reference
+
+### A.1 Upload
+
+```bash
+curl -X POST {{baseUrl}}/organizations/{{orgId}}/imports \
+  -H "Authorization: Bearer {{token}}" \
+  -F "file=@orders.csv" \
+  -F "type=ORDERS"
+```
+
+### A.2 Mapping (canonical keys → your CSV headers)
+
+**ORDERS example:**
 ```json
 {
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Insufficient role",
-    "details": []
+  "mapping": {
+    "orderId": "order_id",
+    "orderedAt": "order_date",
+    "status": "order_status",
+    "productName": "product_name",
+    "sku": "sku",
+    "quantity": "qty",
+    "unitPrice": "unit_price"
   }
 }
+```
+
+**PRODUCTS example:**
+```json
+{
+  "mapping": {
+    "name": "product_name",
+    "sku": "product_id",
+    "price": "selling_price_bdt"
+  }
+}
+```
+
+> Keys are canonical (fixed). Values are your CSV headers (from `detectedHeaders`). Extra columns (`category`, `unit_cost_bdt`, `stock_quantity`, `reorder_level`) are **ignored** — the MVP Product schema only stores `name`, `sku`, `price`. Only `name` is required for PRODUCTS.
+
+### A.3 Confirm
+
+```bash
+curl -X POST {{baseUrl}}/organizations/{{orgId}}/imports/{{importId}}/confirm \
+  -H "Authorization: Bearer {{token}}"
+```
+
+### A.4 Poll
+
+```bash
+curl {{baseUrl}}/organizations/{{orgId}}/imports/{{importId}} \
+  -H "Authorization: Bearer {{token}}"
 ```
 
 ---
 
-## Standard Error Codes
+## Appendix B — Number & Validation Rules
 
-400 `VALIDATION_FAILED`, 401 `UNAUTHORIZED`, 403 `FORBIDDEN`, 404 `NOT_FOUND`, 409 `CONFLICT`, 422 `UNPROCESSABLE`, 429 `RATE_LIMITED`, 500 `INTERNAL_ERROR`.
+- Money is `Decimal` (strings in JSON). Never JS floats.
+- Percentages rounded to 1 decimal for display, exact in calculation.
+- Excluded statuses: `cancelled`, `refunded`, `voided` (case-insensitive).
+- Analysis requires ≥20 previous orders; previous value zero → no percentage finding.
+- Rule thresholds (boundary inclusive): `REVENUE_DROP`/`ORDER_COUNT_DROP` at ≤-10% (MEDIUM -10 to -20, HIGH below -20); `PRODUCT_REVENUE_DROP` for top 10 products at ≤-30% (MEDIUM -30 to -50, HIGH below -50).
+- AI explanation numbers must match evidence values (validator rejects invented numbers).
 
-Error envelope:
-```json
-{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human readable message",
-    "details": [
-      {
-        "field": "fieldName",
-        "constraint": "rule",
-        "message": "detail"
-      }
-    ]
-  }
-}
-```
+---
+
+## Appendix C — Cookie & CORS
+
+- Cookie: `bl_refresh`, httpOnly, Path `/api/v1/auth`, Secure in production, SameSite Lax.
+- CORS: only configured `CORS_ORIGIN`, `credentials: true`.
+- Rate limiting on `/auth/*`.
