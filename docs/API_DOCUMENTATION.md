@@ -137,14 +137,16 @@ Default `page=1`, default `pageSize=20`, max `pageSize=100`.
   - `email` (string, email format, required, max 254)
   - `password` (string, min 10, max 128, required)
   - `name` (string, 1-120 chars, required, trimmed)
-- **Success 201:**
+- **Success 201:** (sets `bl_refresh` httpOnly cookie)
 ```json
 {
   "data": {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "email": "owner@example.com",
     "name": "Avery Owner",
-    "createdAt": "2026-10-30T07:20:55.000Z"
+    "createdAt": "2026-10-30T07:20:55.000Z",
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "expiresIn": 900
   },
   "meta": {}
 }

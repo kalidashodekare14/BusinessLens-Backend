@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { AuthService } from './auth.service';
+import { AuthService, type RegisterResult } from './auth.service';
 import { clearRefreshCookie, readRefreshCookie, setRefreshCookie } from './auth-cookie';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -26,8 +26,22 @@ export class AuthController {
   ) {}
 
   @Post('register')
-  register(@Body() dto: RegisterDto): Promise<PublicUser> {
-    return this.auth.register(dto);
+  @HttpCode(201)
+  async register(
+    @Body() dto: RegisterDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Omit<RegisterResult, 'refreshToken' | 'user'> & PublicUser> {
+    const session = await this.auth.register(dto);
+    setRefreshCookie(res, session.refreshToken, this.config);
+
+    return {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      createdAt: session.user.createdAt,
+      accessToken: session.accessToken,
+      expiresIn: session.expiresIn,
+    };
   }
 
   @Post('login')

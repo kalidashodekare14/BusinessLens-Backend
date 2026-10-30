@@ -16,6 +16,13 @@ export interface LoginResult {
   refreshToken: string;
 }
 
+export interface RegisterResult {
+  user: PublicUser;
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string;
+}
+
 export interface RefreshResult {
   accessToken: string;
   expiresIn: number;
@@ -34,15 +41,18 @@ export class AuthService {
     private readonly audit: AuditService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<PublicUser> {
+  async register(dto: RegisterDto): Promise<RegisterResult> {
     const user = await this.users.create(dto);
+    const accessToken = await this.jwt.signAsync({ sub: user.id });
+    const refreshToken = await this.refreshTokens.issue(user.id);
+
     this.audit.record({
       action: AuditAction.AUTH_REGISTER,
       actorId: user.id,
       entityType: 'User',
       entityId: user.id,
     });
-    return user;
+    return { user, accessToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS, refreshToken };
   }
 
   async login(dto: LoginDto): Promise<LoginResult> {

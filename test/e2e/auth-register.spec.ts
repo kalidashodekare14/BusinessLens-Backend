@@ -37,6 +37,8 @@ describe('POST /api/v1/auth/register (e2e)', () => {
     expect(res.body.data).toMatchObject({ email: normalized, name: 'Ada Lovelace' });
     expect(res.body.data.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(Number.isNaN(Date.parse(res.body.data.createdAt))).toBe(false);
+    expect(res.body.data.accessToken).toEqual(expect.any(String));
+    expect(res.body.data.expiresIn).toBe(900);
     expect(res.body.data).not.toHaveProperty('passwordHash');
     expect(JSON.stringify(res.body)).not.toContain(TEST_PASSWORD);
 
